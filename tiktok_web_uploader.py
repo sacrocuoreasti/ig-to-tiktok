@@ -5,26 +5,46 @@ from playwright.sync_api import sync_playwright
 from models import get_setting, log_event
 from config import DATA_DIR
 
+def clean_session_id(val):
+    if not val:
+        return ""
+    val = val.strip().strip('"').strip("'")
+    if "sessionid=" in val:
+        match = re.search(r'sessionid=([^;]+)', val)
+        if match:
+            val = match.group(1).strip()
+    return val
+
 def test_tiktok_cookie(session_id):
     """
     Tests if a given TikTok sessionid cookie is valid by navigating to Creator Center.
     Returns: {"valid": True/False, "message": str}
     """
-    if not session_id or len(session_id.strip()) < 10:
-        return {"valid": False, "message": "Il sessionid inserito è troppo corto o non valido."}
+    session_id = clean_session_id(session_id)
 
-    session_id = session_id.strip()
+    if not session_id or len(session_id) < 10:
+        return {"valid": False, "message": "Il sessionid inserito è vuoto o troppo corto. Verifica di averlo copiato correttamente."}
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
+                ]
             )
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1366, "height": 900},
+                locale="it-IT"
             )
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.navigator.chrome = { runtime: {} };
+            """)
 
             # Inject cookies
             cookies = [
@@ -34,21 +54,20 @@ def test_tiktok_cookie(session_id):
             context.add_cookies(cookies)
 
             page = context.new_page()
-            page.goto("https://www.tiktok.com/creator-center/upload", timeout=35000, wait_until="domcontentloaded")
-            time.sleep(3)
+            page.goto("https://www.tiktok.com/creator-center/upload?from=upload", timeout=35000, wait_until="domcontentloaded")
+            time.sleep(4)
 
             current_url = page.url
-            page_content = page.content()
 
             browser.close()
 
             if "login" in current_url:
                 return {
                     "valid": False,
-                    "message": "Il cookie sessionid sembra scaduto o non valido (reindirizzato alla pagina di login)."
+                    "message": "Cookie non valido o sessione scaduta (reindirizzato alla pagina di login)."
                 }
 
-            if "creator-center" in current_url or "creator" in current_url or "upload" in current_url:
+            if "creator-center" in current_url or "creator" in current_url or "upload" in current_url or "studio" in current_url:
                 return {
                     "valid": True,
                     "message": "Sessione TikTok valida e autenticata! Pronto per la pubblicazione."
@@ -68,7 +87,9 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
     Uploads a video to TikTok Creator Center using Playwright and the authenticated sessionid cookie.
     """
     if not session_id:
-        session_id = get_setting("tiktok_session_id", "").strip()
+        session_id = get_setting("tiktok_session_id", "")
+
+    session_id = clean_session_id(session_id)
 
     if not session_id:
         return {"success": False, "error": "Nessun cookie sessionid di TikTok configurato nelle impostazioni."}

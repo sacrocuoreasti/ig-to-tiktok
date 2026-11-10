@@ -8,6 +8,27 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+ENV_FALLBACKS = {
+    "instagram_token": ["TOKEN", "token", "INSTAGRAM_TOKEN", "IG_TOKEN"],
+    "instagram_id": ["ID", "id", "INSTAGRAM_ID", "IG_ID"],
+    "instagram_username": ["INSTAGRAM_USERNAME"],
+    "tiktok_session_id": ["TIKTOK_SESSION_ID", "tiktok_session_id", "SESSION_ID", "sessionid"],
+    "tiktok_mode": ["TIKTOK_MODE"],
+    "tiktok_access_token": ["TIKTOK_ACCESS_TOKEN"],
+    "tiktok_client_key": ["TIKTOK_CLIENT_KEY"],
+    "tiktok_client_secret": ["TIKTOK_CLIENT_SECRET"],
+    "auto_publish": ["AUTO_PUBLISH"],
+    "check_interval_minutes": ["CHECK_INTERVAL_MINUTES"]
+}
+
+def get_env_fallback(key):
+    import os
+    for env_k in ENV_FALLBACKS.get(key, []):
+        val = os.environ.get(env_k)
+        if val and val.strip():
+            return val.strip()
+    return None
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -56,22 +77,33 @@ def init_db():
 
     conn.commit()
 
-    # Seed default settings if not exists
+    # Seed default settings if not exists or if currently empty but env exists
     for key, value in DEFAULT_SETTINGS.items():
+        env_val = get_env_fallback(key)
+        effective_val = env_val if env_val else value
+
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-        if cursor.fetchone() is None:
-            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, value))
+        row = cursor.fetchone()
+        if row is None:
+            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, str(effective_val)))
+        elif (not row["value"] or row["value"] == "None" or not str(row["value"]).strip()) and effective_val:
+            cursor.execute("UPDATE settings SET value = ? WHERE key = ?", (str(effective_val), key))
 
     conn.commit()
     conn.close()
 
 def get_setting(key, default=None):
+    # Check environment variable first (crucial for Render and Docker)
+    env_val = get_env_fallback(key)
+    if env_val:
+        return env_val
+
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
     row = cursor.fetchone()
     conn.close()
-    if row is not None:
+    if row is not None and row["value"] and str(row["value"]).strip():
         return row["value"]
     return default
 
