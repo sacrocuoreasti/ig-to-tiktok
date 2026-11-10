@@ -91,6 +91,24 @@ def api_get_single_reel(reel_id):
         return jsonify({"success": False, "error": "Reel non trovato"}), 404
     return jsonify({"success": True, "reel": reel})
 
+@app.route("/api/reels/<reel_id>/download", methods=["POST"])
+def api_download_reel(reel_id):
+    reel = get_reel(reel_id)
+    if not reel:
+        return jsonify({"success": False, "error": "Reel non trovato"}), 404
+
+    if reel.get("media_url"):
+        ig = InstagramClient()
+        res = ig.download_video(reel["media_url"], reel_id)
+    else:
+        from instagram_scraper import download_reel_with_browser_fallback
+        res = download_reel_with_browser_fallback(reel.get("permalink"), reel_id)
+
+    if res.get("success"):
+        from models import update_reel_status
+        update_reel_status(reel_id, "downloaded", video_path=res.get("file_path"))
+    return jsonify(res)
+
 @app.route("/api/reels/<reel_id>/publish", methods=["POST"])
 def api_publish_reel(reel_id):
     data = request.get_json() or {}

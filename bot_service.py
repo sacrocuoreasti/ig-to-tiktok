@@ -105,42 +105,43 @@ class BotService:
                     media_url = r.get("media_url")
 
                     if media_url:
-                        # Direct download available
-                        log_event("INFO", f"Nuovo Reel trovato: {reel_id}. Download in corso...", reel_id=reel_id)
+                        # Direct download available via Meta API
+                        log_event("INFO", f"Nuovo Reel trovato: {reel_id}. Download via Meta API in corso...", reel_id=reel_id)
                         dl_res = ig.download_video(media_url, reel_id)
-
-                        if dl_res.get("success"):
-                            video_path = dl_res.get("file_path")
-                            update_reel_status(reel_id, "downloaded", video_path=video_path)
-                            downloaded_count += 1
-                            log_event("SUCCESS", f"Reel {reel_id} scaricato ({dl_res.get('file_size') // 1024} KB)", reel_id=reel_id)
-
-                            # Auto-publish if enabled
-                            if auto_publish:
-                                log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
-                                pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
-                                if pub_res.get("success"):
-                                    pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
-                                    update_reel_status(
-                                        reel_id,
-                                        pub_status,
-                                        tiktok_id=pub_res.get("publish_id"),
-                                        tiktok_status=pub_res.get("status")
-                                    )
-                                    published_count += 1
-                                    log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
-                                else:
-                                    update_reel_status(reel_id, "error", error=pub_res.get("error"))
-                                    log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
-                        else:
-                            update_reel_status(reel_id, "error", error=dl_res.get("error"))
-                            log_event("ERROR", f"Errore download {reel_id}: {dl_res.get('error')}", reel_id=reel_id)
                     else:
-                        # Meta omits media_url for copyright audio
-                        update_reel_status(reel_id, "audio_restricted")
+                        # Meta omits media_url for copyright audio -> Run automated browser extraction
+                        log_event("INFO", f"Reel {reel_id} con audio protetto. Avvio estrazione automatica tramite browser...", reel_id=reel_id)
+                        from instagram_scraper import download_reel_with_browser_fallback
+                        dl_res = download_reel_with_browser_fallback(r.get("permalink"), reel_id)
+
+                    if dl_res.get("success"):
+                        video_path = dl_res.get("file_path")
+                        update_reel_status(reel_id, "downloaded", video_path=video_path)
+                        downloaded_count += 1
+                        log_event("SUCCESS", f"Reel {reel_id} scaricato e pronto ({dl_res.get('file_size') // 1024} KB)", reel_id=reel_id)
+
+                        # Auto-publish if enabled
+                        if auto_publish:
+                            log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
+                            pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                            if pub_res.get("success"):
+                                pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
+                                update_reel_status(
+                                    reel_id,
+                                    pub_status,
+                                    tiktok_id=pub_res.get("publish_id"),
+                                    tiktok_status=pub_res.get("status")
+                                )
+                                published_count += 1
+                                log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+                            else:
+                                update_reel_status(reel_id, "error", error=pub_res.get("error"))
+                                log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+                    else:
+                        update_reel_status(reel_id, "audio_restricted", error=dl_res.get("error"))
                         log_event(
                             "WARNING",
-                            f"Reel {reel_id} rilevato senza video diretto (audio con copyright). Puoi caricare il file MP4 manualmente nella dashboard.",
+                            f"Reel {reel_id}: estrazione automatica non riuscita ({dl_res.get('error')}). Puoi caricare l'MP4 manualmente.",
                             reel_id=reel_id
                         )
 
@@ -181,10 +182,19 @@ class BotService:
                     update_reel_status(reel_id, "downloaded", video_path=video_path)
                 else:
                     return {"success": False, "error": f"Impossibile scaricare il video: {dl.get('error')}"}
+            elif reel.get("permalink"):
+                # Try automated browser fallback
+                from instagram_scraper import download_reel_with_browser_fallback
+                dl = download_reel_with_browser_fallback(reel["permalink"], reel_id)
+                if dl.get("success"):
+                    video_path = dl["file_path"]
+                    update_reel_status(reel_id, "downloaded", video_path=video_path)
+                else:
+                    return {"success": False, "error": f"Impossibile estrarre il video: {dl.get('error')}"}
             else:
                 return {
                     "success": False,
-                    "error": "File video mancante. Carica prima il file MP4 per questo reel."
+                    "error": "File video mancante e permalink non disponibile."
                 }
 
         caption_to_use = custom_caption if custom_caption is not None else reel.get("caption", "")
