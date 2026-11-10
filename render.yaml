@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: reelsync-ig-to-tiktok
+    runtime: docker
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: PORT
+        value: 5005
+      - key: INSTAGRAM_USERNAME
+        value: sacrocuoreasti
+      - key: TIKTOK_MODE
+        value: web_session
+

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram ➔ TikTok Auto-Publisher</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            ig: '#E1306C',
+                            tiktok: '#00F2FE',
+                            tiktokpink: '#FE2C55',
+                            dark: '#0f172a',
+                            card: '#1e293b',
+                            border: '#334155'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-pink-500 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <!-- Logo & Title -->
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-yellow-500 via-pink-500 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-pink-500/20">
+                    <div class="w-full h-full bg-slate-900 rounded-[10px] flex items-center justify-center">
+                        <i data-lucide="repeat-2" class="w-5 h-5 text-pink-400"></i>
+                    </div>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-pink-400 via-rose-300 to-cyan-300 bg-clip-text text-transparent">
+                        ReelSync: IG ➔ TikTok
+                    </h1>
+                    <p class="text-xs text-slate-400 flex items-center gap-1.5">
+                        <span id="header-bot-pulse" class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span id="header-bot-status-text">Monitoraggio Attivo</span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Header Quick Actions -->
+            <div class="flex items-center space-x-3">
+                <button id="btn-force-sync" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 transition shadow-sm">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    <span>Verifica Ora</span>
+                </button>
+
+                <button id="btn-toggle-bot" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 transition">
+                    <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                    <span id="btn-toggle-bot-text">Bot Attivo</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-slate-800/60 flex space-x-6 text-sm">
+            <button onclick="switchTab('feed')" id="tab-btn-feed" class="py-3 px-1 border-b-2 font-medium text-pink-400 border-pink-500 flex items-center gap-2 transition">
+                <i data-lucide="video" class="w-4 h-4"></i>
+                Feed Reels & Pubblicazioni
+            </button>
+            <button onclick="switchTab('settings')" id="tab-btn-settings" class="py-3 px-1 border-b-2 font-medium text-slate-400 border-transparent hover:text-slate-200 flex items-center gap-2 transition">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+                Impostazioni & Account
+            </button>
+            <button onclick="switchTab('logs')" id="tab-btn-logs" class="py-3 px-1 border-b-2 font-medium text-slate-400 border-transparent hover:text-slate-200 flex items-center gap-2 transition">
+                <i data-lucide="terminal" class="w-4 h-4"></i>
+                Log in Tempo Reale
+            </button>
+            <button onclick="switchTab('guide')" id="tab-btn-guide" class="py-3 px-1 border-b-2 font-medium text-slate-400 border-transparent hover:text-slate-200 flex items-center gap-2 transition">
+                <i data-lucide="help-circle" class="w-4 h-4"></i>
+                Guida TikTok
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+        <!-- TAB 1: FEED & DASHBOARD -->
+        <section id="tab-feed" class="space-y-6">
+            <!-- Stats Counters -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-lg bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
+                        <i data-lucide="instagram" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">Reel Instagram</p>
+                        <p id="stat-total" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                        <i data-lucide="share-2" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">Pubblicati su TikTok</p>
+                        <p id="stat-published" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">Scaricati / Pronti</p>
+                        <p id="stat-pending" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                        <i data-lucide="music-2" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">Audio Copyright</p>
+                        <p id="stat-restricted" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Banner -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <div class="flex -space-x-2">
+                        <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-yellow-500 to-pink-500 flex items-center justify-center border-2 border-slate-900 shadow">
+                            <i data-lucide="instagram" class="w-4 h-4 text-white"></i>
+                        </div>
+                        <div class="w-9 h-9 rounded-full bg-cyan-400 flex items-center justify-center border-2 border-slate-900 shadow">
+                            <i data-lucide="music" class="w-4 h-4 text-slate-950 font-bold"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-semibold text-slate-200">Account IG:</span>
+                            <span id="banner-ig-user" class="text-sm font-bold text-pink-400">@sacrocuoreasti</span>
+                            <span class="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Connesso</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Ultimo controllo: <span id="banner-last-check" class="text-slate-300">In attesa...</span> | 
+                            Prossimo controllo: <span id="banner-next-check" class="text-slate-300">--:--</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Auto-Publish Toggle Switch -->
+                <div class="flex items-center gap-3 bg-slate-950/60 px-4 py-2 rounded-lg border border-slate-800 self-start md:self-auto">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-200">Auto-Pubblicazione su TikTok</p>
+                        <p class="text-[10px] text-slate-400">Pubblica all'istante ogni nuovo Reel rilevato</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="toggle-auto-publish" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-500"></div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Filter Buttons -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div class="flex items-center gap-2" id="filter-buttons">
+                    <button onclick="setFilter('all')" class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700" data-filter="all">Tutti (<span id="count-all">0</span>)</button>
+                    <button onclick="setFilter('downloaded')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="downloaded">Pronti (<span id="count-downloaded">0</span>)</button>
+                    <button onclick="setFilter('published')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="published">Pubblicati (<span id="count-published">0</span>)</button>
+                    <button onclick="setFilter('audio_restricted')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="audio_restricted">Audio Copyright (<span id="count-restricted">0</span>)</button>
+                    <button onclick="setFilter('error')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="error">Errori (<span id="count-error">0</span>)</button>
+                </div>
+                
+                <div class="text-xs text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                    <span>I Reel con audio licenziato possono essere completati caricando il file MP4 originale</span>
+                </div>
+            </div>
+
+            <!-- Reels Grid Container -->
+            <div id="reels-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Dynamically populated via app.js -->
+                <div class="col-span-full py-16 text-center text-slate-500">
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2 text-pink-400"></i>
+                    <p class="text-sm">Caricamento Reels da Instagram in corso...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: SETTINGS -->
+        <section id="tab-settings" class="hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Instagram Configuration Card -->
+                <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-6 space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center">
+                                <i data-lucide="instagram" class="w-5 h-5"></i>
+                            </div>
+                            <h3 class="font-bold text-slate-200">Account Meta / Instagram</h3>
+                        </div>
+                        <button onclick="testInstagramConnection()" class="text-xs px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-pink-400 border border-slate-700 transition">
+                            Test Connessione
+                        </button>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Username Account</label>
+                        <input type="text" id="setting-ig-user" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-pink-500" readonly>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Instagram App ID / Secret (da psw.env)</label>
+                        <input type="text" id="setting-ig-id" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-pink-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Access Token Instagram Graph API (Lunga Durata)</label>
+                        <textarea id="setting-ig-token" rows="3" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 focus:outline-none focus:border-pink-500"></textarea>
+                    </div>
+
+                    <div class="pt-2 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Token valido per 60 giorni</span>
+                        <button onclick="refreshInstagramToken()" class="text-xs px-3 py-1.5 rounded-lg bg-pink-600/20 text-pink-300 border border-pink-500/30 hover:bg-pink-600/30 transition flex items-center gap-1.5">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                            Rinnova Token (60gg)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TikTok Configuration Card -->
+                <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-6 space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                                <i data-lucide="share-2" class="w-5 h-5"></i>
+                            </div>
+                            <h3 class="font-bold text-slate-200">Account TikTok</h3>
+                        </div>
+                        <button onclick="testTikTokConnection()" class="text-xs px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 transition">
+                            Test Connessione
+                        </button>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Modalità di Pubblicazione su TikTok</label>
+                        <select id="setting-tiktok-mode" onchange="toggleTikTokFields()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <option value="web_session" selected>Sessione Web TikTok (Cookie sessionid - Consigliato & Diretto)</option>
+                            <option value="official_api">TikTok Content Posting API v2 (Richiede App Sviluppatore)</option>
+                            <option value="test_mode">Modalità Test / Simulazione (Verifica senza pubblicare)</option>
+                        </select>
+                        <p class="text-[11px] text-slate-400 mt-1" id="mode-helper-text">
+                            La modalità con cookie sessionid ti permette di pubblicare direttamente senza registrare app da sviluppatore.
+                        </p>
+                    </div>
+
+                    <!-- Web Session Fields (Recommended) -->
+                    <div id="fields-web-session" class="space-y-3">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs font-medium text-slate-400">Cookie TikTok: <code class="text-cyan-400 font-bold">sessionid</code></label>
+                                <span class="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Nessuna App Richiesta</span>
+                            </div>
+                            <input type="password" id="setting-tiktok-session-id" placeholder="Incolla qui il tuo cookie sessionid (es. 7b39a...)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <div class="mt-2 p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                                <p class="font-semibold text-slate-300 flex items-center gap-1.5">
+                                    <i data-lucide="help-circle" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                    Come recuperare il cookie in 15 secondi:
+                                </p>
+                                <ol class="list-decimal list-inside space-y-0.5 text-[10px] text-slate-400 pl-1">
+                                    <li>Apri <a href="https://www.tiktok.com" target="_blank" class="text-cyan-400 underline">tiktok.com</a> nel tuo browser e fai il login.</li>
+                                    <li>Premi <kbd class="px-1 py-0.2 bg-slate-800 rounded text-slate-300">F12</kbd> (oppure tasto destro ➔ <em>Ispeziona</em>).</li>
+                                    <li>Vai nella scheda <strong>Application</strong> (o <em>Archiviazione / Cookie</em>).</li>
+                                    <li>Sotto <em>Cookies</em> clicca su <code class="text-slate-300">https://www.tiktok.com</code>.</li>
+                                    <li>Cerca la riga con nome <strong>sessionid</strong>, fai doppio click sul valore e copialo!</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Official API Fields -->
+                    <div id="fields-official-api" class="hidden space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">TikTok Access Token</label>
+                            <input type="password" id="setting-tiktok-token" placeholder="Incolla l'Access Token o Bearer token di TikTok" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">Client Key</label>
+                                <input type="text" id="setting-tiktok-key" placeholder="Client Key dell'app TikTok" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">Client Secret</label>
+                                <input type="password" id="setting-tiktok-secret" placeholder="Client Secret" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Livello di Privacy TikTok</label>
+                            <select id="setting-tiktok-privacy" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                                <option value="PUBLIC_TO_EVERYONE">Pubblico (Tutti)</option>
+                                <option value="MUTUAL_FOLLOW_FRIENDS">Solo Amici</option>
+                                <option value="SELF_ONLY">Solo Io (Privato / Bozza)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Tipo di Pubblicazione</label>
+                            <select id="setting-tiktok-post-type" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                                <option value="direct">Direct Post (Pubblica direttamente)</option>
+                                <option value="inbox">Share to Inbox (Invia come Bozza nell'app)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Automation Settings -->
+                <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-6 space-y-4">
+                    <div class="flex items-center gap-2.5 pb-3 border-b border-slate-800">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                            <i data-lucide="cpu" class="w-5 h-5"></i>
+                        </div>
+                        <h3 class="font-bold text-slate-200">Automazione & Frequenza</h3>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Intervallo di controllo automatico</label>
+                        <select id="setting-check-interval" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
+                            <option value="5">Ogni 5 minuti</option>
+                            <option value="10">Ogni 10 minuti (Consigliato)</option>
+                            <option value="15">Ogni 15 minuti</option>
+                            <option value="30">Ogni 30 minuti</option>
+                            <option value="60">Ogni 60 minuti</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-3 pt-2">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" id="setting-auto-publish-check" class="rounded bg-slate-950 border-slate-800 text-pink-500 focus:ring-pink-500">
+                            <div>
+                                <span class="text-xs font-semibold text-slate-200">Abilita Auto-Pubblicazione immediata</span>
+                                <p class="text-[11px] text-slate-400">Se disattivato, i Reel vengono solo scaricati e preparati per l'approvazione manuale.</p>
+                            </div>
+                        </label>
+
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" id="setting-clean-mentions" class="rounded bg-slate-950 border-slate-800 text-pink-500 focus:ring-pink-500">
+                            <div>
+                                <span class="text-xs font-semibold text-slate-200">Pulisci menzioni di Instagram (@...)</span>
+                                <p class="text-[11px] text-slate-400">Rimuove i tag utente Instagram dalla didascalia prima di inviarla a TikTok.</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Caption Formatting Rules -->
+                <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-6 space-y-4">
+                    <div class="flex items-center gap-2.5 pb-3 border-b border-slate-800">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-5 h-5"></i>
+                        </div>
+                        <h3 class="font-bold text-slate-200">Regole Didascalia TikTok</h3>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Prefisso Didascalia (opzionale)</label>
+                        <input type="text" id="setting-caption-prefix" placeholder="Es: Dal nostro profilo Instagram:" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Hashtag Aggiuntivi / Suffisso</label>
+                        <input type="text" id="setting-caption-suffix" placeholder="#sacrocuore #chiesa #asti #reel" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                    </div>
+
+                    <label class="flex items-center gap-3 cursor-pointer pt-2">
+                        <input type="checkbox" id="setting-include-original-caption" class="rounded bg-slate-950 border-slate-800 text-indigo-500 focus:ring-indigo-500" checked>
+                        <div>
+                            <span class="text-xs font-semibold text-slate-200">Mantieni testo originale del Reel</span>
+                            <p class="text-[11px] text-slate-400">Include la descrizione scritta su Instagram</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Save Settings Button -->
+            <div class="flex justify-end pt-4">
+                <button onclick="saveAllSettings()" class="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold bg-gradient-to-r from-pink-500 to-cyan-500 text-slate-950 hover:opacity-90 shadow-lg shadow-pink-500/20 transition">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    Salva Tutte le Impostazioni
+                </button>
+            </div>
+        </section>
+
+        <!-- TAB 3: LOGS -->
+        <section id="tab-logs" class="hidden space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400">Filtra per livello:</span>
+                    <select id="log-filter-level" onchange="loadLogs()" class="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200">
+                        <option value="ALL">Tutti</option>
+                        <option value="INFO">Info</option>
+                        <option value="SUCCESS">Successi</option>
+                        <option value="WARNING">Avvisi</option>
+                        <option value="ERROR">Errori</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="loadLogs()" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        Aggiorna Log
+                    </button>
+                    <button onclick="clearAllLogs()" class="px-3 py-1 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 flex items-center gap-1.5 transition">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        Svuota
+                    </button>
+                </div>
+            </div>
+
+            <!-- Terminal-style log container -->
+            <div id="logs-container" class="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs overflow-y-auto max-h-[600px] space-y-2">
+                <p class="text-slate-500">In attesa di eventi...</p>
+            </div>
+        </section>
+
+        <!-- TAB 4: GUIDE & TIKTOK API INSTRUCTIONS -->
+        <section id="tab-guide" class="hidden space-y-6">
+            <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-6 space-y-5">
+                <h2 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <i data-lucide="book-open" class="w-5 h-5 text-cyan-400"></i>
+                    Guida all'Integrazione TikTok Content Posting API
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-300 leading-relaxed">
+                    <div class="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                        <h3 class="font-bold text-cyan-300 flex items-center gap-2">
+                            <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+                            1. Come funziona la pubblicazione automatica
+                        </h3>
+                        <p>
+                            Il bot interroga periodicamente l'account Instagram collegato (<code class="text-pink-300">@sacrocuoreasti</code>).
+                            Quando viene rilevato un nuovo Reel:
+                        </p>
+                        <ul class="list-disc list-inside space-y-1 text-slate-400 text-xs">
+                            <li>Scarica automaticamente il video MP4 nativo (risoluzione 720x1280, codec H.264 / AAC) dai server Meta.</li>
+                            <li>Prepara la didascalia con gli hashtag configurati nelle impostazioni.</li>
+                            <li>Invia il video all'API ufficiale di TikTok pubblicandolo all'istante o salvandolo nelle bozze.</li>
+                        </ul>
+                    </div>
+
+                    <div class="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                        <h3 class="font-bold text-cyan-300 flex items-center gap-2">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+                            2. Reel con musica commerciale (Copyright Meta)
+                        </h3>
+                        <p>
+                            Per policy contrattuale Meta/SIAE, quando un Reel usa una traccia musicale protetta da copyright dalla libreria Instagram, l'API Meta omette il download diretto dell'MP4 per tutelare i diritti audio.
+                        </p>
+                        <p class="text-xs text-slate-400">
+                            In questo caso, il bot segnala il Reel con il badge <span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold">Audio Copyright</span>: ti basterà cliccare su <strong>"Carica MP4"</strong> e selezionare il file video originale dal tuo computer per pubblicarlo subito su TikTok!
+                        </p>
+                    </div>
+
+                    <div class="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                        <h3 class="font-bold text-cyan-300 flex items-center gap-2">
+                            <i data-lucide="key" class="w-4 h-4 text-cyan-400"></i>
+                            3. Come ottenere le credenziali TikTok
+                        </h3>
+                        <ol class="list-decimal list-inside space-y-1.5 text-xs text-slate-400">
+                            <li>Accedi a <a href="https://developers.tiktok.com" target="_blank" class="text-cyan-400 underline">developers.tiktok.com</a> con il tuo account TikTok.</li>
+                            <li>Crea una nuova App e seleziona il prodotto <strong>Content Posting API</strong>.</li>
+                            <li>Richiedi i permessi <code class="text-slate-200">video.publish</code> e <code class="text-slate-200">video.upload</code>.</li>
+                            <li>Copia il tuo <strong>Client Key</strong> e <strong>Client Secret</strong> e incollali nel tab Impostazioni di questa dashboard.</li>
+                        </ol>
+                    </div>
+
+                    <div class="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                        <h3 class="font-bold text-cyan-300 flex items-center gap-2">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                            4. Modalità Test / Simulazione
+                        </h3>
+                        <p>
+                            Se stai ancora completando la registrazione su TikTok for Developers, puoi attivare la <strong>"Modalità Test / Simulazione"</strong> nel tab Impostazioni.
+                        </p>
+                        <p class="text-xs text-slate-400">
+                            La modalità Test esegue l'intero ciclo: monitoraggio Instagram, download reale dell'MP4, formattazione didascalia e tracciamento nel database, senza inviare richieste all'API di produzione di TikTok.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL: VIDEO PREVIEW -->
+    <div id="modal-video" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="font-bold text-slate-200 text-sm flex items-center gap-2">
+                    <i data-lucide="play-circle" class="w-4 h-4 text-pink-400"></i>
+                    Anteprima Reel
+                </h3>
+                <button onclick="closeVideoModal()" class="text-slate-400 hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-4 bg-black flex justify-center">
+                <video id="modal-video-player" controls autoplay class="max-h-[500px] rounded-lg shadow"></video>
+            </div>
+            <div class="p-4 border-t border-slate-800 flex justify-end">
+                <button onclick="closeVideoModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">
+                    Chiudi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: PUBLISH TO TIKTOK -->
+    <div id="modal-publish" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="font-bold text-slate-200 text-sm flex items-center gap-2">
+                    <i data-lucide="share-2" class="w-4 h-4 text-cyan-400"></i>
+                    Pubblica Reel su TikTok
+                </h3>
+                <button onclick="closePublishModal()" class="text-slate-400 hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <input type="hidden" id="modal-publish-reel-id">
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Didascalia per TikTok</label>
+                    <textarea id="modal-publish-caption" rows="5" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"></textarea>
+                    <div class="flex justify-between items-center mt-1 text-[11px] text-slate-500">
+                        <span>Max 2200 caratteri</span>
+                        <span id="caption-char-count">0 / 2200</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Privacy su TikTok</label>
+                    <select id="modal-publish-privacy" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                        <option value="PUBLIC_TO_EVERYONE">Pubblico a tutti</option>
+                        <option value="MUTUAL_FOLLOW_FRIENDS">Solo amici / follower reciproci</option>
+                        <option value="SELF_ONLY">Solo io (Privato / Bozza per controllo)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="p-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button onclick="closePublishModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">
+                    Annulla
+                </button>
+                <button id="btn-confirm-publish" onclick="submitPublishReel()" class="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-cyan-500 to-pink-500 hover:opacity-90 text-slate-950 font-bold rounded-lg text-xs shadow-lg shadow-cyan-500/20 transition">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                    <span>Pubblica Ora</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: UPLOAD MP4 -->
+    <div id="modal-upload" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="font-bold text-slate-200 text-sm flex items-center gap-2">
+                    <i data-lucide="upload" class="w-4 h-4 text-purple-400"></i>
+                    Carica file Video MP4
+                </h3>
+                <button onclick="closeUploadModal()" class="text-slate-400 hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <input type="hidden" id="modal-upload-reel-id">
+                <p class="text-xs text-slate-400">
+                    Seleziona il file video originale (.mp4) salvato sul tuo computer per questo Reel.
+                </p>
+
+                <div class="border-2 border-dashed border-slate-700 rounded-xl p-6 text-center hover:border-purple-500 transition cursor-pointer bg-slate-950/40" onclick="document.getElementById('input-video-file').click()">
+                    <i data-lucide="film" class="w-8 h-8 text-purple-400 mx-auto mb-2"></i>
+                    <p id="upload-file-label" class="text-xs font-medium text-slate-300">Clicca qui per selezionare il video (.mp4)</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Fino a 250 MB</p>
+                    <input type="file" id="input-video-file" accept="video/mp4,video/*" class="hidden" onchange="handleFileSelect(event)">
+                </div>
+            </div>
+            <div class="p-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button onclick="closeUploadModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">
+                    Annulla
+                </button>
+                <button id="btn-confirm-upload" onclick="submitVideoUpload()" class="inline-flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-xs shadow-lg shadow-purple-600/20 transition">
+                    <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                    <span>Carica Video</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <script src="/static/js/app.js"></script>
+    <script>
+        // Init Lucide icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>
+

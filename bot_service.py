@@ -1,0 +1,236 @@
+import os
+import time
+import threading
+from datetime import datetime, timedelta
+from pathlib import Path
+from instagram_client import InstagramClient
+from tiktok_client import TikTokClient
+from models import (
+    get_setting, set_setting, save_or_update_reel,
+    update_reel_status, get_reel, log_event
+)
+from config import DOWNLOADS_DIR
+
+class BotService:
+    def __init__(self):
+        self.running = False
+        self.thread = None
+        self.lock = threading.Lock()
+        self.last_check_time = None
+        self.next_check_time = None
+        self.is_checking = False
+
+    def start(self):
+        with self.lock:
+            if self.running:
+                return
+            self.running = True
+            set_setting("bot_enabled", "true")
+            self.thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self.thread.start()
+            log_event("INFO", "Bot di monitoraggio avviato.")
+
+    def stop(self):
+        with self.lock:
+            self.running = False
+            set_setting("bot_enabled", "false")
+            log_event("INFO", "Bot di monitoraggio messo in pausa.")
+
+    def get_status(self):
+        return {
+            "running": self.running,
+            "is_checking": self.is_checking,
+            "last_check": self.last_check_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_check_time else None,
+            "next_check": self.next_check_time.strftime("%Y-%m-%d %H:%M:%S") if self.next_check_time else None,
+            "auto_publish": get_setting("auto_publish", "false") == "true",
+            "interval_minutes": int(get_setting("check_interval_minutes", "10")),
+            "tiktok_mode": get_setting("tiktok_mode", "official_api")
+        }
+
+    def _worker_loop(self):
+        # Initial check after 3 seconds from startup
+        time.sleep(3)
+        while self.running:
+            try:
+                self.run_sync_cycle()
+            except Exception as e:
+                log_event("ERROR", f"Errore nel ciclo del bot: {str(e)}")
+
+            # Calculate sleep interval
+            try:
+                interval_min = max(1, int(get_setting("check_interval_minutes", "10")))
+            except Exception:
+                interval_min = 10
+
+            self.next_check_time = datetime.now() + timedelta(minutes=interval_min)
+
+            # Sleep in 1-second chunks so we can stop promptly
+            for _ in range(interval_min * 60):
+                if not self.running:
+                    break
+                time.sleep(1)
+
+    def run_sync_cycle(self):
+        """Executes a single check cycle against Instagram and triggers auto-publish if enabled."""
+        if self.is_checking:
+            return {"success": False, "message": "Controllo già in corso"}
+
+        self.is_checking = True
+        self.last_check_time = datetime.now()
+
+        try:
+            log_event("INFO", "Controllo nuovi Reel su Instagram in corso...")
+            ig = InstagramClient()
+            res = ig.fetch_recent_reels(limit=50)
+
+            if not res.get("success"):
+                log_event("ERROR", f"Impossibile verificare Instagram: {res.get('error')}")
+                return {"success": False, "error": res.get("error")}
+
+            reels = res.get("reels", [])
+            new_count = 0
+            downloaded_count = 0
+            published_count = 0
+
+            auto_publish = get_setting("auto_publish", "false") == "true"
+            tt = TikTokClient()
+
+            for r in reels:
+                is_new, current_status = save_or_update_reel(r)
+                reel_id = r["id"]
+
+                # If the reel has never been downloaded or processed
+                if is_new or current_status == "new":
+                    new_count += 1
+                    media_url = r.get("media_url")
+
+                    if media_url:
+                        # Direct download available
+                        log_event("INFO", f"Nuovo Reel trovato: {reel_id}. Download in corso...", reel_id=reel_id)
+                        dl_res = ig.download_video(media_url, reel_id)
+
+                        if dl_res.get("success"):
+                            video_path = dl_res.get("file_path")
+                            update_reel_status(reel_id, "downloaded", video_path=video_path)
+                            downloaded_count += 1
+                            log_event("SUCCESS", f"Reel {reel_id} scaricato ({dl_res.get('file_size') // 1024} KB)", reel_id=reel_id)
+
+                            # Auto-publish if enabled
+                            if auto_publish:
+                                log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
+                                pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                                if pub_res.get("success"):
+                                    pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
+                                    update_reel_status(
+                                        reel_id,
+                                        pub_status,
+                                        tiktok_id=pub_res.get("publish_id"),
+                                        tiktok_status=pub_res.get("status")
+                                    )
+                                    published_count += 1
+                                    log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+                                else:
+                                    update_reel_status(reel_id, "error", error=pub_res.get("error"))
+                                    log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+                        else:
+                            update_reel_status(reel_id, "error", error=dl_res.get("error"))
+                            log_event("ERROR", f"Errore download {reel_id}: {dl_res.get('error')}", reel_id=reel_id)
+                    else:
+                        # Meta omits media_url for copyright audio
+                        update_reel_status(reel_id, "audio_restricted")
+                        log_event(
+                            "WARNING",
+                            f"Reel {reel_id} rilevato senza video diretto (audio con copyright). Puoi caricare il file MP4 manualmente nella dashboard.",
+                            reel_id=reel_id
+                        )
+
+            summary = f"Controllo completato: {len(reels)} reel esaminati ({new_count} nuovi, {downloaded_count} scaricati, {published_count} pubblicati)."
+            log_event("INFO", summary)
+            return {
+                "success": True,
+                "reels_checked": len(reels),
+                "new_count": new_count,
+                "downloaded_count": downloaded_count,
+                "published_count": published_count
+            }
+
+        except Exception as e:
+            log_event("ERROR", f"Errore non gestito durante sync_cycle: {str(e)}")
+            return {"success": False, "error": str(e)}
+        finally:
+            self.is_checking = False
+
+    def publish_single_reel(self, reel_id, custom_caption=None, privacy_level=None):
+        """Manually publishes or re-publishes a specific reel to TikTok."""
+        reel = get_reel(reel_id)
+        if not reel:
+            return {"success": False, "error": "Reel non trovato nel database"}
+
+        video_path = reel.get("video_path")
+        # If video_path is missing, check if file exists in downloads
+        if not video_path or not os.path.exists(video_path):
+            expected_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
+            if expected_path.exists():
+                video_path = str(expected_path)
+            elif reel.get("media_url"):
+                # Try downloading now
+                ig = InstagramClient()
+                dl = ig.download_video(reel["media_url"], reel_id)
+                if dl.get("success"):
+                    video_path = dl["file_path"]
+                    update_reel_status(reel_id, "downloaded", video_path=video_path)
+                else:
+                    return {"success": False, "error": f"Impossibile scaricare il video: {dl.get('error')}"}
+            else:
+                return {
+                    "success": False,
+                    "error": "File video mancante. Carica prima il file MP4 per questo reel."
+                }
+
+        caption_to_use = custom_caption if custom_caption is not None else reel.get("caption", "")
+
+        tt = TikTokClient()
+        log_event("INFO", f"Pubblicazione manuale del Reel {reel_id} su TikTok...", reel_id=reel_id)
+        pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level)
+
+        if pub_res.get("success"):
+            pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
+            update_reel_status(
+                reel_id,
+                pub_status,
+                video_path=video_path,
+                tiktok_id=pub_res.get("publish_id"),
+                tiktok_status=pub_res.get("status")
+            )
+            log_event("SUCCESS", f"Reel {reel_id} pubblicato manualmente con successo!", reel_id=reel_id)
+            return {"success": True, "publish_id": pub_res.get("publish_id"), "mode": pub_res.get("mode")}
+        else:
+            update_reel_status(reel_id, "error", error=pub_res.get("error"))
+            log_event("ERROR", f"Errore pubblicazione manuale {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+            return {"success": False, "error": pub_res.get("error")}
+
+    def handle_uploaded_video(self, reel_id, file_storage):
+        """Saves a manually uploaded MP4 for a reel (e.g. for audio-restricted reels)."""
+        reel = get_reel(reel_id)
+        if not reel:
+            return {"success": False, "error": "Reel non trovato"}
+
+        dest_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
+        file_storage.save(str(dest_path))
+
+        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
+            update_reel_status(reel_id, "downloaded", video_path=str(dest_path), error="")
+            log_event("SUCCESS", f"File video MP4 caricato manualmente per il Reel {reel_id}.", reel_id=reel_id)
+            return {"success": True, "file_path": str(dest_path)}
+        else:
+            return {"success": False, "error": "File caricato non valido o vuoto"}
+
+    def skip_reel(self, reel_id):
+        """Marks a reel as skipped so it won't be auto-published."""
+        update_reel_status(reel_id, "skipped")
+        log_event("INFO", f"Reel {reel_id} contrassegnato come ignorato.", reel_id=reel_id)
+        return {"success": True}
+
+# Singleton instance
+bot = BotService()
+

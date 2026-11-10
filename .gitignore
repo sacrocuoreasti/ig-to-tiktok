@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+downloads/*.mp4
+data/*.db
+.DS_Store
+psw.env
+*.env
+
