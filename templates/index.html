@@ -256,17 +256,44 @@
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Modalità di Pubblicazione su TikTok</label>
                         <select id="setting-tiktok-mode" onchange="toggleTikTokFields()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
-                            <option value="web_session" selected>Sessione Web TikTok (Cookie sessionid - Consigliato & Diretto)</option>
+                            <option value="zernio" selected>Zernio API (Consigliato: Ufficiale, Veloce & Zero RAM)</option>
+                            <option value="web_session">Sessione Web TikTok (Cookie sessionid via Playwright)</option>
                             <option value="official_api">TikTok Content Posting API v2 (Richiede App Sviluppatore)</option>
                             <option value="test_mode">Modalità Test / Simulazione (Verifica senza pubblicare)</option>
                         </select>
                         <p class="text-[11px] text-slate-400 mt-1" id="mode-helper-text">
-                            La modalità con cookie sessionid ti permette di pubblicare direttamente senza registrare app da sviluppatore.
+                            Zernio gestisce la pubblicazione TikTok ufficiale in cloud senza appesantire Render né usare RAM.
                         </p>
                     </div>
 
-                    <!-- Web Session Fields (Recommended) -->
-                    <div id="fields-web-session" class="space-y-3">
+                    <!-- Zernio API Fields (Recommended) -->
+                    <div id="fields-zernio" class="space-y-3">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs font-medium text-slate-400">Zernio API Key</label>
+                                <span class="text-[10px] text-cyan-400 font-semibold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">Zero RAM & Ufficiale</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <input type="password" id="setting-zernio-api-key" placeholder="Incolla la tua Zernio API Key (da zernio.com)" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+                                <button type="button" onclick="testZernioConnection()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-400 rounded-lg border border-slate-700 transition">
+                                    Verifica Account
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-1.5">
+                                Recupera la tua API Key su <a href="https://zernio.com" target="_blank" class="text-cyan-400 underline">zernio.com</a> nella sezione Impostazioni ➔ API Keys.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Account TikTok Collegato</label>
+                            <select id="setting-zernio-account-id" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                                <option value="">Rilevamento automatico del primo account TikTok...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Web Session Fields -->
+                    <div id="fields-web-session" class="hidden space-y-3">
                         <div>
                             <div class="flex items-center justify-between mb-1">
                                 <label class="text-xs font-medium text-slate-400">Cookie TikTok: <code class="text-cyan-400 font-bold">sessionid</code></label>

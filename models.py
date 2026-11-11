@@ -14,6 +14,8 @@ ENV_FALLBACKS = {
     "instagram_username": ["INSTAGRAM_USERNAME"],
     "tiktok_session_id": ["TIKTOK_SESSION_ID", "tiktok_session_id", "SESSION_ID", "sessionid"],
     "tiktok_mode": ["TIKTOK_MODE"],
+    "zernio_api_key": ["ZERNIO_API_KEY", "zernio_api_key", "ZERNIO_KEY"],
+    "zernio_tiktok_account_id": ["ZERNIO_TIKTOK_ACCOUNT_ID", "zernio_tiktok_account_id"],
     "tiktok_access_token": ["TIKTOK_ACCESS_TOKEN"],
     "tiktok_client_key": ["TIKTOK_CLIENT_KEY"],
     "tiktok_client_secret": ["TIKTOK_CLIENT_SECRET"],

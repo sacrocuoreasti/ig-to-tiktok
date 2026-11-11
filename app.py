@@ -47,11 +47,19 @@ def api_status():
         "has_token": bool(tt.access_token)
     }
 
+    from zernio_client import ZernioClient
+    zc = ZernioClient()
+    zernio_info = {
+        "is_configured": zc.is_configured(),
+        "has_key": bool(zc.api_key)
+    }
+
     return jsonify({
         "bot": status,
         "stats": stats,
         "instagram": ig_info,
-        "tiktok": tt_info
+        "tiktok": tt_info,
+        "zernio": zernio_info
     })
 
 @app.route("/api/bot/toggle", methods=["POST"])
@@ -177,6 +185,25 @@ def api_test_instagram():
     ig = InstagramClient()
     res = ig.get_account_info()
     return jsonify(res)
+
+@app.route("/api/zernio/accounts")
+def api_zernio_accounts():
+    from zernio_client import ZernioClient
+    zc = ZernioClient()
+    res = zc.list_accounts()
+    return jsonify(res)
+
+@app.route("/api/zernio/test", methods=["POST"])
+def api_zernio_test():
+    data = request.get_json() or {}
+    api_key = data.get("api_key")
+    from zernio_client import ZernioClient
+    zc = ZernioClient(api_key=api_key)
+    res = zc.list_accounts()
+    if res.get("success"):
+        return jsonify({"success": True, "accounts": res.get("accounts", [])})
+    else:
+        return jsonify({"success": False, "error": res.get("error")})
 
 @app.route("/api/instagram/refresh", methods=["POST"])
 def api_refresh_instagram():

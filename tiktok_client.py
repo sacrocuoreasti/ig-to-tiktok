@@ -4,10 +4,11 @@ import requests
 import json
 from pathlib import Path
 from models import get_setting, log_event
+from zernio_client import ZernioClient
 
 class TikTokClient:
     def __init__(self):
-        self.mode = get_setting("tiktok_mode", "web_session")
+        self.mode = get_setting("tiktok_mode", "zernio")
         self.client_key = get_setting("tiktok_client_key", "")
         self.client_secret = get_setting("tiktok_client_secret", "")
         self.access_token = get_setting("tiktok_access_token", "")
@@ -15,9 +16,12 @@ class TikTokClient:
         self.base_url = "https://open.tiktokapis.com/v2"
 
     def is_configured(self):
-        """Returns True if test mode is enabled or if valid credentials/cookies exist."""
+        """Returns True if test mode is enabled or if valid credentials/cookies/zernio exist."""
         if self.mode == "test_mode":
             return True
+        elif self.mode == "zernio":
+            zc = ZernioClient()
+            return zc.is_configured()
         elif self.mode == "web_session":
             return bool(self.session_id)
         elif self.mode == "official_api":
@@ -62,6 +66,30 @@ class TikTokClient:
                 "creator_avatar_url": "",
                 "mode": "test_mode"
             }
+        elif self.mode == "zernio":
+            zc = ZernioClient()
+            if not zc.is_configured():
+                return {"success": False, "error": "Zernio API Key mancante nelle impostazioni", "mode": "zernio"}
+            res = zc.list_accounts(platform="tiktok")
+            if res.get("success"):
+                accs = res.get("accounts", [])
+                if accs:
+                    first = accs[0]
+                    uname = first.get("username") or first.get("name") or first.get("_id")
+                    return {
+                        "success": True,
+                        "creator_nickname": f"TikTok via Zernio (@{uname})",
+                        "mode": "zernio",
+                        "accounts": accs
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "Nessun account TikTok connesso trovato su Zernio. Collegalo sulla dashboard di Zernio.",
+                        "mode": "zernio"
+                    }
+            return {"success": False, "error": res.get("error"), "mode": "zernio"}
+
         elif self.mode == "web_session":
             from tiktok_web_uploader import test_tiktok_cookie
             res = test_tiktok_cookie(self.session_id)
@@ -98,50 +126,47 @@ class TikTokClient:
                     "error": data.get("error", {}).get("message", "Errore verifica account TikTok")
                 }
 
-            creator = data.get("data", {})
+            creator_data = data.get("data", {})
             return {
                 "success": True,
-                "creator_nickname": creator.get("creator_nickname", "TikTok Creator"),
-                "creator_avatar_url": creator.get("creator_avatar_url", ""),
+                "creator_nickname": creator_data.get("creator_nickname"),
+                "creator_avatar_url": creator_data.get("creator_avatar_url"),
+                "privacy_level_options": creator_data.get("privacy_level_options", []),
+                "comment_disabled": creator_data.get("comment_disabled", False),
+                "duet_disabled": creator_data.get("duet_disabled", False),
+                "stitch_disabled": creator_data.get("stitch_disabled", False),
+                "max_video_post_duration_sec": creator_data.get("max_video_post_duration_sec", 600),
                 "mode": "official_api"
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def publish_video(self, video_path, caption=None, privacy_level=None, post_type="direct"):
-        """
-        Publishes video to TikTok using either:
-        1. Web Session Upload (Playwright + sessionid cookie)
-        2. Official Content Posting API v2
-        3. Test Mode / Dry Run
-        """
-        if not os.path.exists(video_path):
-            return {"success": False, "error": f"File video non trovato: {video_path}"}
-
-        file_size = os.path.getsize(video_path)
-        if file_size < 1000:
-            return {"success": False, "error": "File video vuoto o non valido"}
-
+    def publish_video(self, video_path, caption="", privacy_level=None):
+        """Publishes a video to TikTok using the configured mode."""
         formatted_caption = self.format_caption(caption)
-        privacy = privacy_level or get_setting("tiktok_privacy_level", "PUBLIC_TO_EVERYONE")
+        privacy = privacy_level or get_setting("default_privacy_level", "PUBLIC_TO_EVERYONE")
+        post_type = get_setting("tiktok_post_type", "direct")
 
-        # 1. TEST MODE / SIMULATION
+        # 1. TEST MODE
         if self.mode == "test_mode":
-            simulated_id = f"test_pub_{int(time.time())}"
-            log_event(
-                "SUCCESS",
-                f"[SIMULAZIONE TIKTOK] Video '{os.path.basename(video_path)}' ({file_size // 1024} KB) simulato con successo!",
-                details=f"ID Simulato: {simulated_id}\nDidascalia: {formatted_caption}\nPrivacy: {privacy}"
-            )
+            publish_id = f"test_pub_{int(time.time())}"
+            log_event("SUCCESS", f"[TEST MODE] Video {video_path} simulato per TikTok. ID: {publish_id}")
             return {
                 "success": True,
-                "publish_id": simulated_id,
-                "status": "PUBLISHED_SIMULATED",
+                "publish_id": publish_id,
+                "status": "PUBLISH_COMPLETE_TEST",
                 "mode": "test_mode",
                 "caption": formatted_caption
             }
 
-        # 2. WEB SESSION UPLOAD (Solution 2 - Recommended)
+        # 2. ZERNIO UNIFIED API (Recommended: official, fast, zero RAM on host)
+        if self.mode == "zernio":
+            zc = ZernioClient()
+            if not zc.is_configured():
+                return {"success": False, "error": "Zernio API Key non configurata nelle impostazioni."}
+            return zc.publish_to_tiktok(video_path, caption=formatted_caption)
+
+        # 3. WEB SESSION COOKIE VIA PLAYWRIGHT
         if self.mode == "web_session":
             from tiktok_web_uploader import upload_to_tiktok_via_web
             return upload_to_tiktok_via_web(
@@ -151,9 +176,14 @@ class TikTokClient:
                 session_id=self.session_id
             )
 
-        # 3. OFFICIAL TIKTOK API DIRECT POST (Solution 1)
+        # 4. OFFICIAL TIKTOK API DIRECT POST
         if not self.access_token:
-            return {"success": False, "error": "Access Token TikTok mancante. Configuralo nelle impostazioni o passa a 'Sessione Web Cookie'."}
+            return {"success": False, "error": "Access Token TikTok mancante. Passa a modalità 'Zernio' o 'Sessione Web Cookie'."}
+
+        if not os.path.exists(video_path):
+            return {"success": False, "error": f"File non trovato: {video_path}"}
+
+        file_size = os.path.getsize(video_path)
 
         try:
             endpoint = "/post/publish/video/init/" if post_type == "direct" else "/post/publish/inbox/video/init/"

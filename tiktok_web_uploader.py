@@ -1,5 +1,7 @@
 import os
+import re
 import time
+import gc
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from models import get_setting, log_event
@@ -25,6 +27,7 @@ def test_tiktok_cookie(session_id):
     if not session_id or len(session_id) < 10:
         return {"valid": False, "message": "Il sessionid inserito è vuoto o troppo corto. Verifica di averlo copiato correttamente."}
 
+    gc.collect()
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -33,13 +36,18 @@ def test_tiktok_cookie(session_id):
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled"
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--renderer-process-limit=1",
+                    "--disable-blink-features=AutomationControlled",
+                    "--js-flags=--max-old-space-size=128"
                 ]
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 900},
-                locale="it-IT"
+                viewport={"width": 1280, "height": 800},
+                locale="en-US"
             )
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -54,11 +62,14 @@ def test_tiktok_cookie(session_id):
             context.add_cookies(cookies)
 
             page = context.new_page()
+
+            # Abort heavy assets
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "font", "media"] else route.continue_())
+
             page.goto("https://www.tiktok.com/creator-center/upload?from=upload", timeout=35000, wait_until="domcontentloaded")
-            time.sleep(4)
+            time.sleep(3)
 
             current_url = page.url
-
             browser.close()
 
             if "login" in current_url:
@@ -80,11 +91,14 @@ def test_tiktok_cookie(session_id):
 
     except Exception as e:
         return {"valid": False, "message": f"Errore durante la verifica del cookie: {str(e)}"}
+    finally:
+        gc.collect()
 
 
 def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EVERYONE", session_id=None):
     """
-    Uploads a video to TikTok Creator Center using Playwright and the authenticated sessionid cookie.
+    Uploads a video to TikTok Creator Studio using Playwright and sessionid cookie.
+    Optimized for low-RAM containers with navigation resilience and timeout prevention.
     """
     if not session_id:
         session_id = get_setting("tiktok_session_id", "")
@@ -101,9 +115,10 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
     if file_size < 1000:
         return {"success": False, "error": "File video vuoto o non valido"}
 
-    log_event("INFO", f"Avvio caricamento TikTok Web Studio per {os.path.basename(video_path)} ({file_size // 1024} KB)...")
+    log_event("INFO", f"Avvio caricamento TikTok Studio per {os.path.basename(video_path)} ({file_size // 1024} KB)...")
 
     debug_screenshot = DATA_DIR / "debug_tiktok.png"
+    gc.collect()
 
     try:
         with sync_playwright() as p:
@@ -113,13 +128,18 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled"
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--renderer-process-limit=1",
+                    "--disable-blink-features=AutomationControlled",
+                    "--js-flags=--max-old-space-size=128"
                 ]
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 900},
-                locale="it-IT"
+                viewport={"width": 1280, "height": 850},
+                locale="en-US"
             )
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -135,20 +155,34 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
 
             page = context.new_page()
 
+            # Abort fonts and media to save memory, allow scripts and xhr
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["font"] else route.continue_())
+
             # Navigate to TikTok Studio upload page
             upload_url = "https://www.tiktok.com/tiktokstudio/upload?from=upload"
-            log_event("INFO", f"Accesso a {upload_url}...")
+            log_event("INFO", f"Apertura pagina di upload TikTok Studio...")
             page.goto(upload_url, timeout=45000, wait_until="domcontentloaded")
-            time.sleep(3)
+
+            # Allow initial SPA / redirects to settle
+            try:
+                page.wait_for_load_state("load", timeout=8000)
+            except Exception:
+                pass
+            time.sleep(2)
 
             # Helper to dismiss popups, cookie consent, onboarding dialogs
             def dismiss_overlays():
-                for txt in ["Alle erlauben", "Optionale Cookies ablehnen", "Accetta tutti", "Accept all", "Got it", "OK", "Continua", "Ho capito", "Chiudi"]:
+                overlay_texts = [
+                    "Alle erlauben", "Optionale Cookies ablehnen", "Accetta tutti",
+                    "Accept all", "Got it", "OK", "Continua", "Ho capito", "Chiudi",
+                    "Manage cookies", "Decline optional"
+                ]
+                for txt in overlay_texts:
                     try:
                         b = page.locator(f"button:has-text('{txt}')").first
                         if b.count() > 0 and b.is_visible():
-                            b.click()
-                            time.sleep(0.5)
+                            b.click(timeout=1000)
+                            time.sleep(0.3)
                     except Exception:
                         pass
 
@@ -171,20 +205,26 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 dismiss_overlays()
                 # Check all frames
                 for frame in page.frames:
-                    loc = frame.locator("input[type='file']")
-                    if loc.count() > 0:
-                        file_input = loc.first
-                        target = frame
-                        break
+                    try:
+                        loc = frame.locator("input[type='file']")
+                        if loc.count() > 0:
+                            file_input = loc.first
+                            target = frame
+                            break
+                    except Exception:
+                        pass
                 if file_input:
                     break
 
                 # Check main page
-                loc = page.locator("input[type='file']")
-                if loc.count() > 0:
-                    file_input = loc.first
-                    target = page
-                    break
+                try:
+                    loc = page.locator("input[type='file']")
+                    if loc.count() > 0:
+                        file_input = loc.first
+                        target = page
+                        break
+                except Exception:
+                    pass
 
                 time.sleep(1.5)
 
@@ -194,18 +234,22 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 return {"success": False, "error": "Timeout: campo di caricamento file non trovato su TikTok Studio."}
 
             log_event("INFO", "Invio file video al caricatore di TikTok...")
-            file_input.set_input_files(os.path.abspath(video_path))
+            # Use no_wait_after=True to prevent 30s timeout waiting for SPA navigation
+            file_input.set_input_files(os.path.abspath(video_path), no_wait_after=True, timeout=20000)
 
             # Wait for video upload to process (look for caption box or progress)
-            log_event("INFO", "Attesa caricamento ed elaborazione video...")
+            log_event("INFO", "Attesa elaborazione video su TikTok Studio...")
             time.sleep(8)
 
             # Re-check target context in case page updated
             if page.locator("iframe").count() > 0:
                 for frame in page.frames:
-                    if frame.locator("div[contenteditable='true']").count() > 0:
-                        target = frame
-                        break
+                    try:
+                        if frame.locator("div[contenteditable='true']").count() > 0:
+                            target = frame
+                            break
+                    except Exception:
+                        pass
 
             # Find caption editor
             caption_selectors = [
@@ -217,30 +261,31 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
 
             caption_box = None
             for sel in caption_selectors:
-                loc = target.locator(sel)
-                if loc.count() > 0:
-                    caption_box = loc.first
-                    break
+                try:
+                    loc = target.locator(sel)
+                    if loc.count() > 0:
+                        caption_box = loc.first
+                        break
+                except Exception:
+                    pass
 
             if caption_box and caption:
-                log_event("INFO", "Inserimento didascalia ed hashtag nel video...")
+                log_event("INFO", "Inserimento didascalia nel video...")
                 try:
-                    caption_box.click()
+                    caption_box.click(timeout=3000)
                     time.sleep(0.5)
                     # Clear existing content if any
                     page.keyboard.press("Meta+A")
                     page.keyboard.press("Backspace")
                     time.sleep(0.3)
                     # Type caption
-                    caption_box.type(caption, delay=10)
+                    caption_box.type(caption[:2000], delay=10)
                 except Exception as ce:
                     log_event("WARNING", f"Avviso inserimento didascalia: {str(ce)}")
 
             # Handle privacy level if necessary
-            # TikTok Studio default is Public ("Tutti" / "Public")
             if privacy_level == "SELF_ONLY":
                 try:
-                    # Look for privacy dropdown
                     priv_btn = target.locator("text='Chi può vedere questo video'").first
                     if priv_btn.count() > 0:
                         priv_btn.click()
@@ -251,7 +296,7 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 except Exception:
                     pass
 
-            time.sleep(4)
+            time.sleep(3)
 
             # Locate Post / Pubblica button
             post_button_selectors = [
@@ -264,32 +309,36 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
 
             post_btn = None
             for sel in post_button_selectors:
-                btn_loc = target.locator(sel)
-                if btn_loc.count() > 0 and btn_loc.first.is_visible():
-                    post_btn = btn_loc.first
-                    break
-
-            if not post_btn:
-                # Try finding in page
-                for sel in post_button_selectors:
-                    btn_loc = page.locator(sel)
+                try:
+                    btn_loc = target.locator(sel)
                     if btn_loc.count() > 0 and btn_loc.first.is_visible():
                         post_btn = btn_loc.first
                         break
+                except Exception:
+                    pass
+
+            if not post_btn:
+                # Try finding in main page
+                for sel in post_button_selectors:
+                    try:
+                        btn_loc = page.locator(sel)
+                        if btn_loc.count() > 0 and btn_loc.first.is_visible():
+                            post_btn = btn_loc.first
+                            break
+                    except Exception:
+                        pass
 
             if not post_btn:
                 page.screenshot(path=str(debug_screenshot))
                 browser.close()
                 return {"success": False, "error": "Pulsante 'Pubblica' non trovato dopo il caricamento."}
 
-            # Check if post button is enabled
-            log_event("INFO", "Pulsante 'Pubblica' trovato. Clicco per pubblicare...")
-            post_btn.click()
+            log_event("INFO", "Pulsante 'Pubblica' individuato. Clicco per pubblicare...")
+            post_btn.click(timeout=5000)
 
-            # Wait for publication confirmation (up to 20 seconds)
+            # Wait for publication confirmation
             time.sleep(6)
             page.screenshot(path=str(debug_screenshot))
-
             browser.close()
 
             publish_id = f"web_pub_{int(time.time())}"
@@ -302,6 +351,7 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
             }
 
     except Exception as e:
-        log_event("ERROR", f"Errore durante l'upload TikTok Web: {str(e)}")
+        log_event("ERROR", f"Errore durante upload TikTok Web: {str(e)}")
         return {"success": False, "error": str(e)}
-
+    finally:
+        gc.collect()

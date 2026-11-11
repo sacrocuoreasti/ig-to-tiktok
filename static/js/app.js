@@ -469,22 +469,76 @@ async function skipReel(reelId) {
 
 function toggleTikTokFields() {
     const mode = document.getElementById('setting-tiktok-mode').value;
+    const zernioFields = document.getElementById('fields-zernio');
     const webFields = document.getElementById('fields-web-session');
     const apiFields = document.getElementById('fields-official-api');
     const helper = document.getElementById('mode-helper-text');
 
-    if (mode === 'web_session') {
-        webFields.classList.remove('hidden');
-        apiFields.classList.add('hidden');
+    if (mode === 'zernio') {
+        if (zernioFields) zernioFields.classList.remove('hidden');
+        if (webFields) webFields.classList.add('hidden');
+        if (apiFields) apiFields.classList.add('hidden');
+        if (helper) helper.innerText = 'Zernio gestisce la pubblicazione TikTok ufficiale in cloud senza consumare RAM o spazio disco su Render.';
+    } else if (mode === 'web_session') {
+        if (zernioFields) zernioFields.classList.add('hidden');
+        if (webFields) webFields.classList.remove('hidden');
+        if (apiFields) apiFields.classList.add('hidden');
         if (helper) helper.innerText = 'La modalità con cookie sessionid ti permette di pubblicare direttamente senza registrare app da sviluppatore.';
     } else if (mode === 'official_api') {
-        webFields.classList.add('hidden');
-        apiFields.classList.remove('hidden');
+        if (zernioFields) zernioFields.classList.add('hidden');
+        if (webFields) webFields.classList.add('hidden');
+        if (apiFields) apiFields.classList.remove('hidden');
         if (helper) helper.innerText = 'Richiede Client Key, Client Secret e Access Token approvato da developers.tiktok.com.';
     } else {
-        webFields.classList.add('hidden');
-        apiFields.classList.add('hidden');
+        if (zernioFields) zernioFields.classList.add('hidden');
+        if (webFields) webFields.classList.add('hidden');
+        if (apiFields) apiFields.classList.add('hidden');
         if (helper) helper.innerText = 'Modalità Test / Simulazione: scarica i reel e simula la pubblicazione senza inviare nulla ai server di TikTok.';
+    }
+}
+
+async function testZernioConnection() {
+    const keyInput = document.getElementById('setting-zernio-api-key');
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+
+    if (!apiKey) {
+        showToast('Inserisci prima la tua Zernio API Key', 'warning');
+        return;
+    }
+
+    showToast('Verifica account Zernio in corso...', 'info');
+
+    try {
+        const res = await fetch('/api/zernio/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const select = document.getElementById('setting-zernio-account-id');
+            if (select) {
+                select.innerHTML = '';
+                const tiktokAccounts = data.accounts.filter(a => a.platform === 'tiktok');
+                if (tiktokAccounts.length === 0) {
+                    select.innerHTML = '<option value="">Nessun account TikTok trovato su Zernio</option>';
+                    showToast('Chiave valida, ma nessun account TikTok collegato su Zernio!', 'warning');
+                } else {
+                    tiktokAccounts.forEach(acc => {
+                        const opt = document.createElement('option');
+                        opt.value = acc._id || acc.id;
+                        opt.textContent = `TikTok: @${acc.username || acc.name || acc._id}`;
+                        select.appendChild(opt);
+                    });
+                    showToast(`Trovati ${tiktokAccounts.length} account TikTok collegati!`, 'success');
+                }
+            }
+        } else {
+            showToast(`Errore Zernio: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        showToast(`Errore connessione Zernio: ${err.message}`, 'error');
     }
 }
 
@@ -501,7 +555,15 @@ async function loadSettings() {
             document.getElementById('setting-ig-id').value = s.instagram_id || '';
             document.getElementById('setting-ig-token').value = s.instagram_token || '';
 
-            document.getElementById('setting-tiktok-mode').value = s.tiktok_mode || 'web_session';
+            document.getElementById('setting-tiktok-mode').value = s.tiktok_mode || 'zernio';
+            const zKeyElem = document.getElementById('setting-zernio-api-key');
+            if (zKeyElem) zKeyElem.value = s.zernio_api_key || '';
+
+            const zAccElem = document.getElementById('setting-zernio-account-id');
+            if (zAccElem && s.zernio_tiktok_account_id) {
+                zAccElem.innerHTML = `<option value="${s.zernio_tiktok_account_id}">Account Salvato (${s.zernio_tiktok_account_id})</option>`;
+            }
+
             document.getElementById('setting-tiktok-session-id').value = s.tiktok_session_id || '';
             document.getElementById('setting-tiktok-token').value = s.tiktok_access_token || '';
             document.getElementById('setting-tiktok-key').value = s.tiktok_client_key || '';
@@ -525,10 +587,15 @@ async function loadSettings() {
 }
 
 async function saveAllSettings() {
+    const zKeyElem = document.getElementById('setting-zernio-api-key');
+    const zAccElem = document.getElementById('setting-zernio-account-id');
+
     const payload = {
         instagram_id: document.getElementById('setting-ig-id').value.trim(),
         instagram_token: document.getElementById('setting-ig-token').value.trim(),
         tiktok_mode: document.getElementById('setting-tiktok-mode').value,
+        zernio_api_key: zKeyElem ? zKeyElem.value.trim() : '',
+        zernio_tiktok_account_id: zAccElem ? zAccElem.value : '',
         tiktok_session_id: document.getElementById('setting-tiktok-session-id').value.trim(),
         tiktok_access_token: document.getElementById('setting-tiktok-token').value.trim(),
         tiktok_client_key: document.getElementById('setting-tiktok-key').value.trim(),

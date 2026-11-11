@@ -10,5 +10,8 @@ services:
       - key: INSTAGRAM_USERNAME
         value: sacrocuoreasti
       - key: TIKTOK_MODE
-        value: web_session
-
+        value: zernio
+      - key: ZERNIO_API_KEY
+        sync: false
+      - key: AUTO_DELETE_VIDEO
+        value: "true"

@@ -21,6 +21,8 @@ DEFAULT_INSTAGRAM_ID = os.environ.get("ID") or env_values.get("ID", "")
 DEFAULT_INSTAGRAM_TOKEN = os.environ.get("TOKEN") or os.environ.get("token") or env_values.get("token", "")
 DEFAULT_INSTAGRAM_USERNAME = os.environ.get("INSTAGRAM_USERNAME", "sacrocuoreasti")
 DEFAULT_TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
+DEFAULT_ZERNIO_API_KEY = os.environ.get("ZERNIO_API_KEY", "")
+DEFAULT_ZERNIO_TIKTOK_ACCOUNT_ID = os.environ.get("ZERNIO_TIKTOK_ACCOUNT_ID", "")
 DEFAULT_AUTO_PUBLISH = os.environ.get("AUTO_PUBLISH", "false")
 DEFAULT_AUTO_DELETE = os.environ.get("AUTO_DELETE_VIDEO", "true")
 
@@ -44,6 +46,9 @@ DEFAULT_SETTINGS = {
     "instagram_username": DEFAULT_INSTAGRAM_USERNAME,
     "check_interval_minutes": "10",
     "bot_enabled": "true",
+    "tiktok_mode": "zernio",  # zernio, web_session, official_api, test_mode
+    "zernio_api_key": DEFAULT_ZERNIO_API_KEY,
+    "zernio_tiktok_account_id": DEFAULT_ZERNIO_TIKTOK_ACCOUNT_ID,
     "auto_publish": DEFAULT_AUTO_PUBLISH,  # User can toggle this on when ready
     "auto_delete_video": DEFAULT_AUTO_DELETE,  # Auto-cleanup after publish
     "max_disk_cache_mb": "150",
