@@ -205,6 +205,19 @@ def api_zernio_test():
     else:
         return jsonify({"success": False, "error": res.get("error")})
 
+@app.route("/api/webhook/zernio", methods=["GET", "POST"])
+def api_webhook_zernio():
+    """Receives async post status updates and resolved TikTok video URLs from Zernio."""
+    if request.method == "GET":
+        challenge = request.args.get("challenge") or request.args.get("hub.challenge") or "ok"
+        return challenge, 200
+
+    data = request.get_json(silent=True) or {}
+    event_type = data.get("event") or data.get("type", "unknown")
+    from models import log_event
+    log_event("INFO", f"Webhook Zernio ricevuto ({event_type})", details=str(data))
+    return jsonify({"received": True, "event": event_type}), 200
+
 @app.route("/api/instagram/refresh", methods=["POST"])
 def api_refresh_instagram():
     ig = InstagramClient()
