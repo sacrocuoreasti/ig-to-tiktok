@@ -155,15 +155,16 @@ class BotService:
                             reel_id=reel_id
                         )
 
-            # If auto-publish is ON, process at most ONE audio-restricted reel per check cycle to keep RAM under 512MB
-            if auto_publish and published_count == 0:
+            # If auto-publish is ON, automatically extract and publish any pending or audio-restricted reels
+            if auto_publish:
                 for r in reels:
                     reel_id = r["id"]
                     curr = get_reel(reel_id)
-                    if curr and curr.get("status") == "audio_restricted" and not curr.get("tiktok_id"):
-                        log_event("INFO", f"Auto-pubblicazione singolo Reel con audio copyright: {reel_id}...", reel_id=reel_id)
-                        self.publish_single_reel(reel_id)
-                        break
+                    if curr and curr.get("status") in ("audio_restricted", "new", "downloaded") and not curr.get("tiktok_publish_id"):
+                        log_event("INFO", f"Auto-pubblicazione Reel su TikTok: {reel_id}...", reel_id=reel_id)
+                        res_pub = self.publish_single_reel(reel_id)
+                        if res_pub.get("success"):
+                            published_count += 1
 
             summary = f"Controllo completato: {len(reels)} reel esaminati ({new_count} nuovi, {downloaded_count} scaricati, {published_count} pubblicati)."
             log_event("INFO", summary)
@@ -182,9 +183,9 @@ class BotService:
             self.is_checking = False
             gc.collect()
 
-    def publish_single_reel(self, reel_id, custom_caption=None, privacy_level=None):
+    def publish_single_reel(self, reel_id, custom_caption=None, privacy_level=None, scheduled_for=None):
         """
-        Manually publishes or re-publishes a specific reel to TikTok.
+        Manually publishes or schedules a specific reel to TikTok.
         Protected with browser_lock to prevent simultaneous browser instances.
         """
         reel = get_reel(reel_id)
@@ -204,6 +205,16 @@ class BotService:
                 if dl.get("success"):
                     video_path = dl["file_path"]
                     update_reel_status(reel_id, "downloaded", video_path=video_path)
+                elif reel.get("permalink"):
+                    # Fallback to browser if media_url expired
+                    with browser_lock:
+                        from instagram_scraper import download_reel_with_browser_fallback
+                        dl = download_reel_with_browser_fallback(reel["permalink"], reel_id)
+                    if dl.get("success"):
+                        video_path = dl["file_path"]
+                        update_reel_status(reel_id, "downloaded", video_path=video_path)
+                    else:
+                        return {"success": False, "error": f"Impossibile estrarre il video: {dl.get('error')}"}
                 else:
                     return {"success": False, "error": f"Impossibile scaricare il video: {dl.get('error')}"}
             elif reel.get("permalink"):
@@ -225,32 +236,53 @@ class BotService:
         caption_to_use = custom_caption if custom_caption is not None else reel.get("caption", "")
 
         tt = TikTokClient()
-        log_event("INFO", f"Pubblicazione del Reel {reel_id} su TikTok...", reel_id=reel_id)
+        action_msg = f"Programmazione del Reel {reel_id} per {scheduled_for}" if scheduled_for else f"Pubblicazione del Reel {reel_id} su TikTok..."
+        log_event("INFO", action_msg, reel_id=reel_id)
 
         with browser_lock:
-            pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level)
+            pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level, scheduled_for=scheduled_for)
 
         if pub_res.get("success"):
-            pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
+            res_status = pub_res.get("status")
+            if res_status == "scheduled" or scheduled_for:
+                pub_status = "scheduled"
+                scheduled_time = pub_res.get("scheduled_for") or scheduled_for
+            elif pub_res.get("mode") == "test_mode":
+                pub_status = "published_test"
+                scheduled_time = None
+            else:
+                pub_status = "published"
+                scheduled_time = None
+
             update_reel_status(
                 reel_id,
                 pub_status,
                 video_path=video_path,
                 tiktok_id=pub_res.get("publish_id"),
-                tiktok_status=pub_res.get("status"),
-                tiktok_url=pub_res.get("tiktok_url")
+                tiktok_status=res_status,
+                tiktok_url=pub_res.get("tiktok_url"),
+                scheduled_for=scheduled_time
             )
-            log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+            success_msg = f"Reel {reel_id} programmato per {scheduled_time}!" if pub_status == "scheduled" else f"Reel {reel_id} pubblicato con successo su TikTok!"
+            log_event("SUCCESS", success_msg, reel_id=reel_id)
 
             # Auto-delete video from disk if enabled to save Render disk space
             if get_setting("auto_delete_video", "true") == "true":
                 self._cleanup_single_file(video_path, reel_id)
 
             gc.collect()
-            return {"success": True, "publish_id": pub_res.get("publish_id"), "tiktok_url": pub_res.get("tiktok_url"), "mode": pub_res.get("mode")}
+            return {
+                "success": True,
+                "publish_id": pub_res.get("publish_id"),
+                "tiktok_url": pub_res.get("tiktok_url"),
+                "status": pub_status,
+                "scheduled_for": scheduled_time,
+                "warning": pub_res.get("warning"),
+                "mode": pub_res.get("mode")
+            }
         else:
             update_reel_status(reel_id, "error", error=pub_res.get("error"))
-            log_event("ERROR", f"Errore pubblicazione manuale {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+            log_event("ERROR", f"Errore invio a TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
             gc.collect()
             return {"success": False, "error": pub_res.get("error")}
 

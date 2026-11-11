@@ -71,6 +71,8 @@ def init_db():
     columns = [row["name"] for row in cursor.fetchall()]
     if "tiktok_url" not in columns:
         cursor.execute("ALTER TABLE reels ADD COLUMN tiktok_url TEXT")
+    if "scheduled_for" not in columns:
+        cursor.execute("ALTER TABLE reels ADD COLUMN scheduled_for TEXT")
 
     # Table for logs
     cursor.execute("""
@@ -101,6 +103,10 @@ def init_db():
     # Ensure default tiktok_mode is zernio if not set in env
     if not get_env_fallback("tiktok_mode"):
         cursor.execute("UPDATE settings SET value = 'zernio' WHERE key = 'tiktok_mode'")
+
+    # Ensure default auto_publish is true
+    if not get_env_fallback("auto_publish"):
+        cursor.execute("UPDATE settings SET value = 'true' WHERE key = 'auto_publish'")
 
     conn.commit()
     conn.close()
@@ -204,7 +210,7 @@ def save_or_update_reel(reel_data):
         conn.close()
         return True, reel_data.get("status", "new")  # is_new = True
 
-def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None, tiktok_url=None):
+def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None, tiktok_url=None, scheduled_for=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     now_iso = datetime.utcnow().isoformat()
@@ -227,6 +233,10 @@ def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_
     if tiktok_url is not None:
         updates.append("tiktok_url = ?")
         params.append(tiktok_url)
+
+    if scheduled_for is not None:
+        updates.append("scheduled_for = ?")
+        params.append(scheduled_for)
 
     if error is not None:
         updates.append("error_message = ?")

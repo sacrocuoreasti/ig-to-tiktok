@@ -141,8 +141,8 @@ class TikTokClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def publish_video(self, video_path, caption="", privacy_level=None):
-        """Publishes a video to TikTok using the configured mode."""
+    def publish_video(self, video_path, caption="", privacy_level=None, scheduled_for=None):
+        """Publishes or schedules a video to TikTok using the configured mode."""
         formatted_caption = self.format_caption(caption)
         privacy = privacy_level or get_setting("default_privacy_level", "PUBLIC_TO_EVERYONE")
         post_type = get_setting("tiktok_post_type", "direct")
@@ -164,7 +164,7 @@ class TikTokClient:
             zc = ZernioClient()
             if not zc.is_configured():
                 return {"success": False, "error": "Zernio API Key non configurata nelle impostazioni."}
-            return zc.publish_to_tiktok(video_path, caption=formatted_caption)
+            return zc.publish_to_tiktok(video_path, caption=formatted_caption, scheduled_for=scheduled_for)
 
         # 3. WEB SESSION COOKIE VIA PLAYWRIGHT
         if self.mode == "web_session":

@@ -121,10 +121,11 @@ class ZernioClient:
         except Exception as e:
             return {"success": False, "error": f"Errore caricamento su Zernio: {str(e)}"}
 
-    def publish_to_tiktok(self, video_path_or_url, caption="", account_id=None):
+    def publish_to_tiktok(self, video_path_or_url, caption="", account_id=None, scheduled_for=None):
         """
-        Publishes a video to TikTok using Zernio's API.
+        Publishes or schedules a video to TikTok using Zernio's API.
         Accepts either a local file path or a public video URL.
+        If scheduled_for is provided (ISO 8601 string), the post is scheduled for that date/time.
         """
         if not self.is_configured():
             return {"success": False, "error": "Zernio API Key mancante"}
@@ -146,7 +147,8 @@ class ZernioClient:
                 return {"success": False, "error": up_res.get("error")}
             public_url = up_res.get("public_url")
 
-        log_event("INFO", f"Invio richiesta pubblicazione TikTok a Zernio (Account: {target_acc_id})...")
+        action_label = f"programmazione ({scheduled_for})" if scheduled_for else "pubblicazione immediata"
+        log_event("INFO", f"Invio richiesta TikTok a Zernio [{action_label}] (Account: {target_acc_id})...")
 
         privacy = get_setting("tiktok_privacy_level", "PUBLIC_TO_EVERYONE")
         disable_comment = get_setting("tiktok_disable_comments", "false") == "true"
@@ -156,7 +158,7 @@ class ZernioClient:
         try:
             post_payload = {
               "content": caption or "",
-              "publishNow": True,
+              "publishNow": not bool(scheduled_for),
               "mediaItems": [
                   {
                       "type": "video",
@@ -179,6 +181,9 @@ class ZernioClient:
               ]
             }
 
+            if scheduled_for:
+                post_payload["scheduledFor"] = scheduled_for
+
             resp = requests.post(
                 f"{self.base_url}/posts",
                 headers=self._headers(),
@@ -195,16 +200,37 @@ class ZernioClient:
             post_obj = data.get("post") or data.get("data") or data
             post_id = post_obj.get("_id") or post_obj.get("id") or f"zernio_{int(time.time())}"
 
-            # Check if specific platform failed
+            # Check if specific platform failed or was queued
             tiktok_url = None
+            platform_status = "published"
+            scheduled_at = None
+            warning_msg = None
             platforms_res = post_obj.get("platforms", [])
             for p in platforms_res:
                 if p.get("platform") == "tiktok":
-                    if p.get("status") == "failed":
+                    p_status = p.get("status")
+                    if p_status == "failed":
                         fail_reason = p.get("error") or p.get("message") or "Errore pubblicazione TikTok da Zernio"
                         log_event("ERROR", f"Zernio ha segnalato errore su TikTok: {fail_reason}", details=str(p))
                         return {"success": False, "error": fail_reason, "raw": data}
+                    elif p_status in ("pending", "scheduled"):
+                        platform_status = "scheduled"
+                        scheduled_at = p.get("scheduledFor") or post_obj.get("scheduledFor")
+                        if p.get("errorMessage"):
+                            warning_msg = p.get("errorMessage")
                     tiktok_url = p.get("platformPostUrl")
+
+            if scheduled_for or platform_status == "scheduled":
+                log_event("SUCCESS", f"Video programmato per TikTok tramite Zernio! Post ID: {post_id} (Data: {scheduled_at or scheduled_for})")
+                return {
+                    "success": True,
+                    "publish_id": str(post_id),
+                    "tiktok_url": tiktok_url,
+                    "status": "scheduled",
+                    "scheduled_for": scheduled_at or scheduled_for,
+                    "warning": warning_msg,
+                    "mode": "zernio"
+                }
 
             log_event("SUCCESS", f"Video pubblicato con successo su TikTok tramite Zernio! Post ID: {post_id}")
             return {

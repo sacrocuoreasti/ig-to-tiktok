@@ -23,7 +23,7 @@ DEFAULT_INSTAGRAM_USERNAME = os.environ.get("INSTAGRAM_USERNAME", "sacrocuoreast
 DEFAULT_TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
 DEFAULT_ZERNIO_API_KEY = os.environ.get("ZERNIO_API_KEY", "")
 DEFAULT_ZERNIO_TIKTOK_ACCOUNT_ID = os.environ.get("ZERNIO_TIKTOK_ACCOUNT_ID", "")
-DEFAULT_AUTO_PUBLISH = os.environ.get("AUTO_PUBLISH", "false")
+DEFAULT_AUTO_PUBLISH = os.environ.get("AUTO_PUBLISH", "true")
 DEFAULT_AUTO_DELETE = os.environ.get("AUTO_DELETE_VIDEO", "true")
 
 def get_disk_usage():

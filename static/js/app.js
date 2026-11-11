@@ -221,6 +221,7 @@ function createReelCardHtml(reel) {
         'downloaded': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> Pronto per TikTok</span>`,
         'published': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><i data-lucide="share-2" class="w-3 h-3"></i> Pubblicato su TikTok</span>`,
         'published_test': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center gap-1"><i data-lucide="flask-conical" class="w-3 h-3"></i> Simulato (Test TikTok)</span>`,
+        'scheduled': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> Programmato</span>`,
         'audio_restricted': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1"><i data-lucide="disc" class="w-3 h-3"></i> Audio Protetto</span>`,
         'error': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30">Errore</span>`,
         'skipped': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-slate-700 text-slate-400">Ignorato</span>`
@@ -291,20 +292,29 @@ function createReelCardHtml(reel) {
                         </a>
                     ` : ''}
 
-                    <div class="flex items-center justify-between gap-2">
-                        ${hasVideo ? `
-                            <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs ${reel.status.startsWith('published') ? 'font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200' : 'font-bold bg-gradient-to-r from-pink-500 to-cyan-500 text-slate-950 shadow-md shadow-pink-500/20'} transition">
-                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
-                                <span>${reel.status.startsWith('published') ? 'Ripubblica' : 'Pubblica su TikTok'}</span>
+                    <div class="flex items-center justify-between gap-1.5">
+                        ${reel.status.startsWith('published') ? `
+                            <button onclick="openPublishModal('${reel.id}', 'now')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                                <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                                <span>Ripubblica</span>
+                            </button>
+                            <button onclick="openPublishModal('${reel.id}', 'schedule')" title="Programma ripubblicazione" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
+                                <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
                             </button>
                         ` : `
-                            <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white shadow-md shadow-purple-500/20 transition">
-                                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                                <span>Estrai & Pubblica</span>
+                            <button onclick="openPublishModal('${reel.id}', 'now')" class="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-500 to-cyan-500 hover:opacity-95 text-slate-950 shadow-md shadow-pink-500/20 transition">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                                <span>Pubblica Ora</span>
                             </button>
-                            <button onclick="openUploadModal('${reel.id}')" title="Carica file MP4 manuale (facoltativo)" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
-                                <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                            <button onclick="openPublishModal('${reel.id}', 'schedule')" class="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 transition">
+                                <i data-lucide="clock" class="w-3.5 h-3.5 text-purple-400"></i>
+                                <span>Programma</span>
                             </button>
+                            ${reel.status === 'audio_restricted' ? `
+                                <button onclick="openUploadModal('${reel.id}')" title="Carica file MP4 manuale" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+                                    <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                                </button>
+                            ` : ''}
                         `}
 
                         <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
@@ -339,7 +349,35 @@ function closeVideoModal() {
 // ----------------------------------------------------
 // MODAL: PUBLISH TO TIKTOK
 // ----------------------------------------------------
-function openPublishModal(reelId) {
+function togglePublishActionType(type) {
+    const scheduleBox = document.getElementById('schedule-datetime-container');
+    const btn = document.getElementById('btn-confirm-publish');
+    const radioNow = document.getElementById('radio-publish-now');
+    const radioSchedule = document.getElementById('radio-publish-schedule');
+
+    if (type === 'schedule') {
+        if (radioSchedule) radioSchedule.checked = true;
+        if (scheduleBox) scheduleBox.classList.remove('hidden');
+        if (btn) btn.innerHTML = `<i data-lucide="clock" class="w-4 h-4"></i><span>Programma su TikTok</span>`;
+        
+        // Default datetime to tomorrow at 12:00 if empty
+        const dtInput = document.getElementById('modal-publish-datetime');
+        if (dtInput && !dtInput.value) {
+            const tmrw = new Date();
+            tmrw.setDate(tmrw.getDate() + 1);
+            tmrw.setHours(12, 0, 0, 0);
+            const pad = n => String(n).padStart(2, '0');
+            dtInput.value = `${tmrw.getFullYear()}-${pad(tmrw.getMonth()+1)}-${pad(tmrw.getDate())}T${pad(tmrw.getHours())}:${pad(tmrw.getMinutes())}`;
+        }
+    } else {
+        if (radioNow) radioNow.checked = true;
+        if (scheduleBox) scheduleBox.classList.add('hidden');
+        if (btn) btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>Pubblica Ora</span>`;
+    }
+    lucide.createIcons();
+}
+
+function openPublishModal(reelId, preselectedType = 'now') {
     const reel = allReels.find(r => r.id === reelId);
     if (!reel) return;
 
@@ -357,6 +395,8 @@ function openPublishModal(reelId) {
     const captionInput = document.getElementById('modal-publish-caption');
     captionInput.value = defaultCaption.trim();
     document.getElementById('caption-char-count').innerText = `${captionInput.value.length} / 2200`;
+
+    togglePublishActionType(preselectedType);
 
     const banner = document.getElementById('publish-mode-banner');
     if (banner) {
@@ -385,34 +425,58 @@ async function submitPublishReel() {
     const reelId = document.getElementById('modal-publish-reel-id').value;
     const caption = document.getElementById('modal-publish-caption').value;
     const privacy = document.getElementById('modal-publish-privacy').value;
+    const isSchedule = document.getElementById('radio-publish-schedule')?.checked;
+    const dtInput = document.getElementById('modal-publish-datetime');
     const btn = document.getElementById('btn-confirm-publish');
 
+    let scheduledForIso = null;
+    if (isSchedule) {
+        if (!dtInput || !dtInput.value) {
+            showToast('Seleziona una data e ora valide per la programmazione', 'error');
+            return;
+        }
+        const pickedDate = new Date(dtInput.value);
+        if (isNaN(pickedDate.getTime()) || pickedDate <= new Date()) {
+            showToast('La data di programmazione deve essere nel futuro', 'error');
+            return;
+        }
+        scheduledForIso = pickedDate.toISOString();
+    }
+
     btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Invio a TikTok...</span>`;
+    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>${isSchedule ? 'Programmazione in corso...' : 'Invio a TikTok...'}</span>`;
     lucide.createIcons();
 
     try {
         const res = await fetch(`/api/reels/${reelId}/publish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption, privacy_level: privacy })
+            body: JSON.stringify({
+                caption,
+                privacy_level: privacy,
+                scheduled_for: scheduledForIso
+            })
         });
         const data = await res.json();
 
         if (data.success) {
-            showToast(`Reel pubblicato su TikTok! ${data.mode === 'test_mode' ? '(Simulazione Test)' : ''}`, 'success');
+            if (data.status === 'scheduled' || isSchedule) {
+                const warn = data.warning ? ` (${data.warning})` : '';
+                showToast(`Reel programmato con successo!${warn}`, 'info');
+            } else {
+                showToast(`Reel pubblicato su TikTok! ${data.mode === 'test_mode' ? '(Simulazione Test)' : ''}`, 'success');
+            }
             closePublishModal();
             loadReels();
             fetchStatus();
         } else {
-            showToast(`Errore pubblicazione: ${data.error}`, 'error');
+            showToast(`Errore: ${data.error}`, 'error');
         }
     } catch (err) {
-        showToast('Errore durante la pubblicazione', 'error');
+        showToast('Errore di comunicazione durante la richiesta', 'error');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>Pubblica Ora</span>`;
-        lucide.createIcons();
+        togglePublishActionType(isSchedule ? 'schedule' : 'now');
     }
 }
 

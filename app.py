@@ -138,8 +138,14 @@ def api_publish_reel(reel_id):
     data = request.get_json() or {}
     custom_caption = data.get("caption")
     privacy = data.get("privacy_level")
+    scheduled_for = data.get("scheduled_for")
 
-    res = bot.publish_single_reel(reel_id, custom_caption=custom_caption, privacy_level=privacy)
+    res = bot.publish_single_reel(
+        reel_id,
+        custom_caption=custom_caption,
+        privacy_level=privacy,
+        scheduled_for=scheduled_for
+    )
     return jsonify(res)
 
 @app.route("/api/reels/<reel_id>/upload", methods=["POST"])
