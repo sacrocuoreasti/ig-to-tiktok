@@ -93,7 +93,7 @@ def init_db():
 
     # Ensure default tiktok_mode is zernio if not set in env
     if not get_env_fallback("tiktok_mode"):
-        cursor.execute("UPDATE settings SET value = 'zernio' WHERE key = 'tiktok_mode' AND (value = 'web_session' OR value IS NULL OR value = '')")
+        cursor.execute("UPDATE settings SET value = 'zernio' WHERE key = 'tiktok_mode'")
 
     conn.commit()
     conn.close()
@@ -119,7 +119,19 @@ def get_all_settings():
     cursor.execute("SELECT key, value FROM settings")
     rows = cursor.fetchall()
     conn.close()
-    return {row["key"]: row["value"] for row in rows}
+    settings = {row["key"]: row["value"] for row in rows}
+    
+    # Priority to environment variables (e.g. on Render)
+    for k in ENV_FALLBACKS:
+        env_val = get_env_fallback(k)
+        if env_val:
+            settings[k] = env_val
+
+    # Ensure tiktok_mode defaults to zernio
+    if not settings.get("tiktok_mode"):
+        settings["tiktok_mode"] = "zernio"
+
+    return settings
 
 def set_setting(key, value):
     conn = get_db_connection()

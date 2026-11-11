@@ -48,7 +48,7 @@ class BotService:
             "next_check": self.next_check_time.strftime("%Y-%m-%d %H:%M:%S") if self.next_check_time else None,
             "auto_publish": get_setting("auto_publish", "false") == "true",
             "interval_minutes": int(get_setting("check_interval_minutes", "10")),
-            "tiktok_mode": get_setting("tiktok_mode", "official_api")
+            "tiktok_mode": get_setting("tiktok_mode", "zernio")
         }
 
     def _worker_loop(self):
@@ -127,7 +127,7 @@ class BotService:
                                 with browser_lock:
                                     pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
                                 if pub_res.get("success"):
-                                    pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
+                                    pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
                                     update_reel_status(
                                         reel_id,
                                         pub_status,
@@ -230,7 +230,7 @@ class BotService:
             pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level)
 
         if pub_res.get("success"):
-            pub_status = "published" if pub_res.get("mode") == "official_api" else "published_test"
+            pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
             update_reel_status(
                 reel_id,
                 pub_status,

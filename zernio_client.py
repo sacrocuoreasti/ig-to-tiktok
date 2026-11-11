@@ -148,6 +148,11 @@ class ZernioClient:
 
         log_event("INFO", f"Invio richiesta pubblicazione TikTok a Zernio (Account: {target_acc_id})...")
 
+        privacy = get_setting("tiktok_privacy_level", "PUBLIC_TO_EVERYONE")
+        disable_comment = get_setting("tiktok_disable_comments", "false") == "true"
+        disable_duet = get_setting("tiktok_disable_duet", "false") == "true"
+        disable_stitch = get_setting("tiktok_disable_stitch", "false") == "true"
+
         try:
             post_payload = {
               "content": caption or "",
@@ -160,7 +165,15 @@ class ZernioClient:
               "platforms": [
                   {
                       "platform": "tiktok",
-                      "accountId": target_acc_id
+                      "accountId": target_acc_id,
+                      "platformSpecificData": {
+                          "privacyLevel": privacy,
+                          "allowComment": not disable_comment,
+                          "allowDuet": not disable_duet,
+                          "allowStitch": not disable_stitch,
+                          "contentPreviewConfirmed": True,
+                          "expressConsentGiven": True
+                      }
                   }
               ]
             }
