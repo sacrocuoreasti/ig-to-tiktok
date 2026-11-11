@@ -22,6 +22,21 @@ DEFAULT_INSTAGRAM_TOKEN = os.environ.get("TOKEN") or os.environ.get("token") or 
 DEFAULT_INSTAGRAM_USERNAME = os.environ.get("INSTAGRAM_USERNAME", "sacrocuoreasti")
 DEFAULT_TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
 DEFAULT_AUTO_PUBLISH = os.environ.get("AUTO_PUBLISH", "false")
+DEFAULT_AUTO_DELETE = os.environ.get("AUTO_DELETE_VIDEO", "true")
+
+def get_disk_usage():
+    import shutil
+    try:
+        total, used, free = shutil.disk_usage(str(BASE_DIR))
+        downloads_size = sum(f.stat().st_size for f in DOWNLOADS_DIR.glob("*") if f.is_file())
+        return {
+            "downloads_size_mb": round(downloads_size / (1024 * 1024), 1),
+            "free_disk_mb": round(free / (1024 * 1024), 1),
+            "total_disk_mb": round(total / (1024 * 1024), 1),
+            "used_disk_mb": round(used / (1024 * 1024), 1)
+        }
+    except Exception:
+        return {"downloads_size_mb": 0, "free_disk_mb": 500, "total_disk_mb": 512, "used_disk_mb": 12}
 
 DEFAULT_SETTINGS = {
     "instagram_id": DEFAULT_INSTAGRAM_ID,
@@ -30,6 +45,10 @@ DEFAULT_SETTINGS = {
     "check_interval_minutes": "10",
     "bot_enabled": "true",
     "auto_publish": DEFAULT_AUTO_PUBLISH,  # User can toggle this on when ready
+    "auto_delete_video": DEFAULT_AUTO_DELETE,  # Auto-cleanup after publish
+    "max_disk_cache_mb": "150",
+    "gdrive_enabled": "false",
+    "gdrive_folder_id": "",
     "tiktok_mode": "web_session",  # 'web_session', 'official_api' or 'test_mode'
     "tiktok_session_id": DEFAULT_TIKTOK_SESSION_ID,
     "tiktok_client_key": "",

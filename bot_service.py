@@ -134,6 +134,10 @@ class BotService:
                                 )
                                 published_count += 1
                                 log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+
+                                # Auto-delete video from disk if enabled to save Render disk space
+                                if get_setting("auto_delete_video", "true") == "true":
+                                    self._cleanup_single_file(video_path, reel_id)
                             else:
                                 update_reel_status(reel_id, "error", error=pub_res.get("error"))
                                 log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
@@ -213,6 +217,11 @@ class BotService:
                 tiktok_status=pub_res.get("status")
             )
             log_event("SUCCESS", f"Reel {reel_id} pubblicato manualmente con successo!", reel_id=reel_id)
+
+            # Auto-delete video from disk if enabled to save Render disk space
+            if get_setting("auto_delete_video", "true") == "true":
+                self._cleanup_single_file(video_path, reel_id)
+
             return {"success": True, "publish_id": pub_res.get("publish_id"), "mode": pub_res.get("mode")}
         else:
             update_reel_status(reel_id, "error", error=pub_res.get("error"))
@@ -234,6 +243,18 @@ class BotService:
             return {"success": True, "file_path": str(dest_path)}
         else:
             return {"success": False, "error": "File caricato non valido o vuoto"}
+
+    def _cleanup_single_file(self, video_path, reel_id):
+        """Safely removes a published video from disk to keep storage usage low."""
+        if not video_path:
+            return
+        try:
+            p = Path(video_path)
+            if p.exists():
+                p.unlink()
+                log_event("INFO", f"File video rimosso dal disco per risparmiare spazio: {p.name}", reel_id=reel_id)
+        except Exception as e:
+            log_event("WARNING", f"Impossibile rimuovere {video_path}: {str(e)}", reel_id=reel_id)
 
     def skip_reel(self, reel_id):
         """Marks a reel as skipped so it won't be auto-published."""

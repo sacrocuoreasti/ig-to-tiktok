@@ -117,9 +117,14 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 ]
             )
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 900}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1366, "height": 900},
+                locale="it-IT"
             )
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.navigator.chrome = { runtime: {} };
+            """)
 
             # Inject session cookies
             cookies = [
@@ -131,30 +136,62 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
             page = context.new_page()
 
             # Navigate to TikTok Studio upload page
-            page.goto("https://www.tiktok.com/creator-center/upload?from=upload", timeout=45000, wait_until="domcontentloaded")
-            time.sleep(4)
+            upload_url = "https://www.tiktok.com/tiktokstudio/upload?from=upload"
+            log_event("INFO", f"Accesso a {upload_url}...")
+            page.goto(upload_url, timeout=45000, wait_until="domcontentloaded")
+            time.sleep(3)
+
+            # Helper to dismiss popups, cookie consent, onboarding dialogs
+            def dismiss_overlays():
+                for txt in ["Alle erlauben", "Optionale Cookies ablehnen", "Accetta tutti", "Accept all", "Got it", "OK", "Continua", "Ho capito", "Chiudi"]:
+                    try:
+                        b = page.locator(f"button:has-text('{txt}')").first
+                        if b.count() > 0 and b.is_visible():
+                            b.click()
+                            time.sleep(0.5)
+                    except Exception:
+                        pass
+
+            dismiss_overlays()
 
             # Check if redirected to login
             if "login" in page.url:
                 page.screenshot(path=str(debug_screenshot))
                 browser.close()
-                err_msg = "Cookie di sessione scaduto o non valido. Aggiorna il sessionid nelle impostazioni."
+                err_msg = "Cookie di sessione scaduto o non valido (reindirizzato a login). Aggiorna TIKTOK_SESSION_ID nelle impostazioni."
                 log_event("ERROR", err_msg)
                 return {"success": False, "error": err_msg}
 
-            # Locate file input (could be in page or within an iframe)
+            # Locate file input across all frames with retry loop
+            log_event("INFO", "Ricerca del campo di caricamento video su TikTok Studio...")
             target = page
-            if page.locator("iframe").count() > 0:
+            file_input = None
+
+            for attempt in range(15):
+                dismiss_overlays()
+                # Check all frames
                 for frame in page.frames:
-                    if frame.locator("input[type='file']").count() > 0:
+                    loc = frame.locator("input[type='file']")
+                    if loc.count() > 0:
+                        file_input = loc.first
                         target = frame
                         break
+                if file_input:
+                    break
 
-            file_input = target.locator("input[type='file']").first
+                # Check main page
+                loc = page.locator("input[type='file']")
+                if loc.count() > 0:
+                    file_input = loc.first
+                    target = page
+                    break
+
+                time.sleep(1.5)
+
             if not file_input:
                 page.screenshot(path=str(debug_screenshot))
                 browser.close()
-                return {"success": False, "error": "Impossibile trovare il campo di caricamento video su TikTok Studio."}
+                return {"success": False, "error": "Timeout: campo di caricamento file non trovato su TikTok Studio."}
 
             log_event("INFO", "Invio file video al caricatore di TikTok...")
             file_input.set_input_files(os.path.abspath(video_path))

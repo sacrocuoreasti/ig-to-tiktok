@@ -55,12 +55,35 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
             page = browser.new_page(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             )
             page.on("response", on_response)
 
             page.goto(permalink, timeout=35000, wait_until="domcontentloaded")
-            time.sleep(3)
+            time.sleep(2)
+
+            # Dismiss EU/German/Italian/English cookie consent banners (vital for Render in Germany)
+            cookie_buttons = [
+                "Alle Cookies erlauben",
+                "Optionale Cookies ablehnen",
+                "Consenti tutti i cookie",
+                "Consenti cookie essenziali e facoltativi",
+                "Allow all cookies",
+                "Allow essential and optional cookies",
+                "Decline optional cookies",
+                "Rifiuta cookie facoltativi",
+                "Allow",
+                "Consenti"
+            ]
+            for btn_txt in cookie_buttons:
+                try:
+                    btn = page.locator(f"button:has-text('{btn_txt}')").first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click()
+                        time.sleep(1)
+                        break
+                except Exception:
+                    pass
 
             # Unmute and trigger play to ensure audio track stream is requested
             page.evaluate("""() => {
