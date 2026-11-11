@@ -23,5 +23,4 @@ RUN mkdir -p data downloads
 
 EXPOSE 5005
 
-CMD ["python3", "app.py"]
-
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5005} --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile - app:app"]
