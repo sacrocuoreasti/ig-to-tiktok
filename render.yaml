@@ -6,7 +6,7 @@ services:
     region: frankfurt
     envVars:
       - key: PORT
-        value: 5005
+        value: 10000
       - key: INSTAGRAM_USERNAME
         value: sacrocuoreasti
       - key: TIKTOK_MODE

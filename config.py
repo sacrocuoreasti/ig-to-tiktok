@@ -46,7 +46,7 @@ DEFAULT_SETTINGS = {
     "instagram_username": DEFAULT_INSTAGRAM_USERNAME,
     "check_interval_minutes": "10",
     "bot_enabled": "true",
-    "tiktok_mode": "zernio",  # zernio, web_session, official_api, test_mode
+    "tiktok_mode": "zernio",  # zernio (default), web_session, official_api, test_mode
     "zernio_api_key": DEFAULT_ZERNIO_API_KEY,
     "zernio_tiktok_account_id": DEFAULT_ZERNIO_TIKTOK_ACCOUNT_ID,
     "auto_publish": DEFAULT_AUTO_PUBLISH,  # User can toggle this on when ready
@@ -54,7 +54,6 @@ DEFAULT_SETTINGS = {
     "max_disk_cache_mb": "150",
     "gdrive_enabled": "false",
     "gdrive_folder_id": "",
-    "tiktok_mode": "web_session",  # 'web_session', 'official_api' or 'test_mode'
     "tiktok_session_id": DEFAULT_TIKTOK_SESSION_ID,
     "tiktok_client_key": "",
     "tiktok_client_secret": "",

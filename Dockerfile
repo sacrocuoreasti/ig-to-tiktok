@@ -2,8 +2,7 @@ FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
 
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1 \
-    PORT=5005
+ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies including ffmpeg
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
@@ -18,9 +17,12 @@ RUN playwright install chromium
 # Copy application code
 COPY . .
 
+# Ensure entrypoint is executable
+RUN chmod +x entrypoint.sh
+
 # Create necessary directories
 RUN mkdir -p data downloads
 
-EXPOSE 5005
+EXPOSE 10000
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5005} --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile - app:app"]
+CMD ["/app/entrypoint.sh"]

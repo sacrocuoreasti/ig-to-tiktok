@@ -91,6 +91,10 @@ def init_db():
         elif (not row["value"] or row["value"] == "None" or not str(row["value"]).strip()) and effective_val:
             cursor.execute("UPDATE settings SET value = ? WHERE key = ?", (str(effective_val), key))
 
+    # Ensure default tiktok_mode is zernio if not set in env
+    if not get_env_fallback("tiktok_mode"):
+        cursor.execute("UPDATE settings SET value = 'zernio' WHERE key = 'tiktok_mode' AND (value = 'web_session' OR value IS NULL OR value = '')")
+
     conn.commit()
     conn.close()
 
