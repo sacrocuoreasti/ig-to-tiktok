@@ -156,6 +156,7 @@ class ZernioClient:
         try:
             post_payload = {
               "content": caption or "",
+              "publishNow": True,
               "mediaItems": [
                   {
                       "type": "video",
@@ -188,14 +189,28 @@ class ZernioClient:
             data = resp.json()
             if resp.status_code not in (200, 201):
                 err = data.get("error", data.get("message", f"HTTP {resp.status_code}"))
-                log_event("ERROR", f"Errore pubblicazione Zernio: {err}")
-                return {"success": False, "error": str(err)}
+                log_event("ERROR", f"Errore pubblicazione Zernio: {err}", details=str(data))
+                return {"success": False, "error": str(err), "raw": data}
 
-            post_id = data.get("_id") or data.get("id") or (data.get("data") or {}).get("id") or f"zernio_{data.get('status', 'ok')}"
-            log_event("SUCCESS", f"Video inviato a TikTok con successo tramite Zernio! Post ID: {post_id}")
+            post_obj = data.get("post") or data.get("data") or data
+            post_id = post_obj.get("_id") or post_obj.get("id") or f"zernio_{int(time.time())}"
+
+            # Check if specific platform failed
+            tiktok_url = None
+            platforms_res = post_obj.get("platforms", [])
+            for p in platforms_res:
+                if p.get("platform") == "tiktok":
+                    if p.get("status") == "failed":
+                        fail_reason = p.get("error") or p.get("message") or "Errore pubblicazione TikTok da Zernio"
+                        log_event("ERROR", f"Zernio ha segnalato errore su TikTok: {fail_reason}", details=str(p))
+                        return {"success": False, "error": fail_reason, "raw": data}
+                    tiktok_url = p.get("platformPostUrl")
+
+            log_event("SUCCESS", f"Video pubblicato con successo su TikTok tramite Zernio! Post ID: {post_id}")
             return {
                 "success": True,
                 "publish_id": str(post_id),
+                "tiktok_url": tiktok_url,
                 "mode": "zernio",
                 "status": "PUBLISHED_VIA_ZERNIO"
             }
