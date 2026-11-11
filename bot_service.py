@@ -132,7 +132,8 @@ class BotService:
                                         reel_id,
                                         pub_status,
                                         tiktok_id=pub_res.get("publish_id"),
-                                        tiktok_status=pub_res.get("status")
+                                        tiktok_status=pub_res.get("status"),
+                                        tiktok_url=pub_res.get("tiktok_url")
                                     )
                                     published_count += 1
                                     log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
@@ -236,7 +237,8 @@ class BotService:
                 pub_status,
                 video_path=video_path,
                 tiktok_id=pub_res.get("publish_id"),
-                tiktok_status=pub_res.get("status")
+                tiktok_status=pub_res.get("status"),
+                tiktok_url=pub_res.get("tiktok_url")
             )
             log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
 
@@ -245,7 +247,7 @@ class BotService:
                 self._cleanup_single_file(video_path, reel_id)
 
             gc.collect()
-            return {"success": True, "publish_id": pub_res.get("publish_id"), "mode": pub_res.get("mode")}
+            return {"success": True, "publish_id": pub_res.get("publish_id"), "tiktok_url": pub_res.get("tiktok_url"), "mode": pub_res.get("mode")}
         else:
             update_reel_status(reel_id, "error", error=pub_res.get("error"))
             log_event("ERROR", f"Errore pubblicazione manuale {reel_id}: {pub_res.get('error')}", reel_id=reel_id)

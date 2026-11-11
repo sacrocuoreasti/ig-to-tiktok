@@ -134,3 +134,4 @@ def run_test(api_key=None):
 if __name__ == "__main__":
     key_arg = sys.argv[1] if len(sys.argv) > 1 else None
     run_test(key_arg)
+

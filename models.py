@@ -59,11 +59,18 @@ def init_db():
         status TEXT DEFAULT 'new',
         tiktok_publish_id TEXT,
         tiktok_status TEXT,
+        tiktok_url TEXT,
         error_message TEXT,
         discovered_at TEXT,
         published_at TEXT
     )
     """)
+
+    # Migration: Ensure tiktok_url exists in existing reels table
+    cursor.execute("PRAGMA table_info(reels)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    if "tiktok_url" not in columns:
+        cursor.execute("ALTER TABLE reels ADD COLUMN tiktok_url TEXT")
 
     # Table for logs
     cursor.execute("""
@@ -197,7 +204,7 @@ def save_or_update_reel(reel_data):
         conn.close()
         return True, reel_data.get("status", "new")  # is_new = True
 
-def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None):
+def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None, tiktok_url=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     now_iso = datetime.utcnow().isoformat()
@@ -217,6 +224,10 @@ def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_
         updates.append("tiktok_status = ?")
         params.append(tiktok_status)
 
+    if tiktok_url is not None:
+        updates.append("tiktok_url = ?")
+        params.append(tiktok_url)
+
     if error is not None:
         updates.append("error_message = ?")
         params.append(error)
@@ -229,6 +240,23 @@ def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_
     cursor.execute(f"UPDATE reels SET {', '.join(updates)} WHERE id = ?", params)
     conn.commit()
     conn.close()
+
+def update_reel_tiktok_url_by_post_id(post_id, tiktok_url, platform_post_id=None):
+    """Updates tiktok_url and optionally tiktok_status/status when Zernio resolves the URL."""
+    if not post_id or not tiktok_url:
+        return False
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE reels SET
+            tiktok_url = ?,
+            tiktok_status = 'published'
+        WHERE tiktok_publish_id = ?
+    """, (tiktok_url, str(post_id)))
+    affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
 
 def get_reel(reel_id):
     conn = get_db_connection()

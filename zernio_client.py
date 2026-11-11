@@ -218,3 +218,45 @@ class ZernioClient:
         except Exception as e:
             log_event("ERROR", f"Eccezione durante pubblicazione Zernio: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    def sync_published_urls(self):
+        """
+        Polls recent posts from Zernio and updates any database reels that have
+        matching tiktok_publish_id with their final resolved platformPostUrl / publishedUrl.
+        """
+        if not self.is_configured():
+            return {"success": False, "error": "Zernio non configurato"}
+
+        try:
+            resp = requests.get(f"{self.base_url}/posts", headers=self._headers(), timeout=15)
+            if resp.status_code != 200:
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            posts = resp.json().get("posts", [])
+            from models import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            updated = 0
+
+            for p in posts:
+                p_id = p.get("_id")
+                platforms = p.get("platforms", [])
+                for pl in platforms:
+                    if pl.get("platform") == "tiktok":
+                        url = pl.get("platformPostUrl") or pl.get("publishedUrl")
+                        if p_id and url:
+                            cursor.execute("""
+                                UPDATE reels SET
+                                    tiktok_url = ?,
+                                    status = 'published',
+                                    tiktok_status = 'published'
+                                WHERE tiktok_publish_id = ? AND (tiktok_url IS NULL OR tiktok_url != ?)
+                            """, (url, str(p_id), url))
+                            if cursor.rowcount > 0:
+                                updated += cursor.rowcount
+
+            conn.commit()
+            conn.close()
+            return {"success": True, "updated_count": updated}
+        except Exception as e:
+            return {"success": False, "error": str(e)}

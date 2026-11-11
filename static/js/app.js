@@ -283,25 +283,34 @@ function createReelCardHtml(reel) {
                 ` : ''}
 
                 <!-- Actions -->
-                <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                    ${hasVideo ? `
-                        <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-500 to-cyan-500 hover:opacity-95 text-slate-950 shadow-md shadow-pink-500/20 transition">
-                            <i data-lucide="send" class="w-3.5 h-3.5"></i>
-                            <span>${reel.status.startsWith('published') ? 'Ripubblica' : 'Pubblica su TikTok'}</span>
-                        </button>
-                    ` : `
-                        <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white shadow-md shadow-purple-500/20 transition">
-                            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                            <span>Estrai & Pubblica</span>
-                        </button>
-                        <button onclick="openUploadModal('${reel.id}')" title="Carica file MP4 manuale (facoltativo)" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
-                            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
-                        </button>
-                    `}
+                <div class="pt-2 border-t border-slate-800/80 flex flex-col gap-2">
+                    ${reel.tiktok_url ? `
+                        <a href="${reel.tiktok_url}" target="_blank" class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-400 to-pink-500 hover:opacity-95 text-slate-950 shadow-md shadow-pink-500/20 transition">
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                            <span>🎵 Guarda su TikTok</span>
+                        </a>
+                    ` : ''}
 
-                    <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
-                        <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
-                    </button>
+                    <div class="flex items-center justify-between gap-2">
+                        ${hasVideo ? `
+                            <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs ${reel.status.startsWith('published') ? 'font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200' : 'font-bold bg-gradient-to-r from-pink-500 to-cyan-500 text-slate-950 shadow-md shadow-pink-500/20'} transition">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                                <span>${reel.status.startsWith('published') ? 'Ripubblica' : 'Pubblica su TikTok'}</span>
+                            </button>
+                        ` : `
+                            <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white shadow-md shadow-purple-500/20 transition">
+                                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                                <span>Estrai & Pubblica</span>
+                            </button>
+                            <button onclick="openUploadModal('${reel.id}')" title="Carica file MP4 manuale (facoltativo)" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
+                                <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                            </button>
+                        `}
+
+                        <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
+                            <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

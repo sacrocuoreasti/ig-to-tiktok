@@ -85,8 +85,23 @@ def api_bot_sync():
     res = bot.run_sync_cycle()
     return jsonify(res)
 
+_last_zernio_sync_time = 0
+
 @app.route("/api/reels")
 def api_get_reels():
+    global _last_zernio_sync_time
+    now = time.time()
+    # Auto-sync resolved TikTok URLs from Zernio if not synced in the last 30s
+    if now - _last_zernio_sync_time > 30:
+        _last_zernio_sync_time = now
+        try:
+            from zernio_client import ZernioClient
+            zc = ZernioClient()
+            if zc.is_configured():
+                zc.sync_published_urls()
+        except Exception:
+            pass
+
     status = request.args.get("status", "all")
     limit = int(request.args.get("limit", 60))
     reels = get_reels(limit=limit, status=status)
@@ -205,6 +220,14 @@ def api_zernio_test():
     else:
         return jsonify({"success": False, "error": res.get("error")})
 
+@app.route("/api/zernio/sync", methods=["GET", "POST"])
+def api_zernio_sync():
+    """Manual trigger to synchronize post URLs from Zernio to local reels."""
+    from zernio_client import ZernioClient
+    zc = ZernioClient()
+    res = zc.sync_published_urls()
+    return jsonify(res)
+
 @app.route("/api/webhook/zernio", methods=["GET", "POST"])
 def api_webhook_zernio():
     """Receives async post status updates and resolved TikTok video URLs from Zernio."""
@@ -214,8 +237,25 @@ def api_webhook_zernio():
 
     data = request.get_json(silent=True) or {}
     event_type = data.get("event") or data.get("type", "unknown")
-    from models import log_event
-    log_event("INFO", f"Webhook Zernio ricevuto ({event_type})", details=str(data))
+    from models import log_event, update_reel_tiktok_url_by_post_id
+
+    post_obj = data.get("post") or {}
+    post_id = post_obj.get("id") or post_obj.get("_id") or data.get("postId")
+    platform_obj = data.get("platform") or {}
+    published_url = platform_obj.get("publishedUrl") or platform_obj.get("platformPostUrl")
+
+    if not published_url and "platforms" in post_obj:
+        for p in post_obj.get("platforms", []):
+            if p.get("platform") == "tiktok":
+                published_url = p.get("publishedUrl") or p.get("platformPostUrl")
+                break
+
+    if post_id and published_url:
+        update_reel_tiktok_url_by_post_id(post_id, published_url, platform_obj.get("platformPostId"))
+        log_event("SUCCESS", f"Webhook Zernio: URL TikTok collegato al Reel ({post_id}): {published_url}")
+    else:
+        log_event("INFO", f"Webhook Zernio ricevuto ({event_type})", details=str(data))
+
     return jsonify({"received": True, "event": event_type}), 200
 
 @app.route("/api/instagram/refresh", methods=["POST"])
