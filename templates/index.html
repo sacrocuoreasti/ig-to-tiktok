@@ -178,7 +178,7 @@
                     <button onclick="setFilter('all')" class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700" data-filter="all">Tutti (<span id="count-all">0</span>)</button>
                     <button onclick="setFilter('downloaded')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="downloaded">Pronti (<span id="count-downloaded">0</span>)</button>
                     <button onclick="setFilter('published')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="published">Pubblicati (<span id="count-published">0</span>)</button>
-                    <button onclick="setFilter('audio_restricted')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="audio_restricted">Audio Copyright (<span id="count-restricted">0</span>)</button>
+                    <button onclick="setFilter('audio_restricted')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="audio_restricted">Audio Protetto (<span id="count-restricted">0</span>)</button>
                     <button onclick="setFilter('error')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="error">Errori (<span id="count-error">0</span>)</button>
                 </div>
                 
@@ -569,6 +569,8 @@
             </div>
             <div class="p-5 space-y-4">
                 <input type="hidden" id="modal-publish-reel-id">
+
+                <div id="publish-mode-banner" class="text-xs p-2.5 rounded-lg border border-slate-800 bg-slate-950 flex items-center gap-2"></div>
 
                 <div>
                     <label class="block text-xs font-medium text-slate-400 mb-1">Didascalia per TikTok</label>

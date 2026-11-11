@@ -221,7 +221,7 @@ function createReelCardHtml(reel) {
         'downloaded': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> Pronto per TikTok</span>`,
         'published': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><i data-lucide="share-2" class="w-3 h-3"></i> Pubblicato su TikTok</span>`,
         'published_test': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center gap-1"><i data-lucide="flask-conical" class="w-3 h-3"></i> Simulato (Test TikTok)</span>`,
-        'audio_restricted': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1"><i data-lucide="disc" class="w-3 h-3"></i> Audio Copyright (Carica MP4)</span>`,
+        'audio_restricted': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1"><i data-lucide="disc" class="w-3 h-3"></i> Audio Protetto</span>`,
         'error': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30">Errore</span>`,
         'skipped': `<span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-slate-700 text-slate-400">Ignorato</span>`
     };
@@ -289,14 +289,15 @@ function createReelCardHtml(reel) {
                             <i data-lucide="send" class="w-3.5 h-3.5"></i>
                             <span>${reel.status.startsWith('published') ? 'Ripubblica' : 'Pubblica su TikTok'}</span>
                         </button>
-                    ` : (reel.status === 'audio_restricted' ? `
-                        <button onclick="openUploadModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/20 transition">
-                            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
-                            <span>Carica MP4</span>
-                        </button>
                     ` : `
-                        <span class="text-[11px] text-slate-500 italic">In attesa del video...</span>
-                    `)}
+                        <button onclick="openPublishModal('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white shadow-md shadow-purple-500/20 transition">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                            <span>Estrai & Pubblica</span>
+                        </button>
+                        <button onclick="openUploadModal('${reel.id}')" title="Carica file MP4 manuale (facoltativo)" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
+                            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                        </button>
+                    `}
 
                     <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
                         <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
@@ -347,6 +348,21 @@ function openPublishModal(reelId) {
     const captionInput = document.getElementById('modal-publish-caption');
     captionInput.value = defaultCaption.trim();
     document.getElementById('caption-char-count').innerText = `${captionInput.value.length} / 2200`;
+
+    const banner = document.getElementById('publish-mode-banner');
+    if (banner) {
+        const mode = botStatus?.tiktok_mode || 'zernio';
+        if (mode === 'test_mode') {
+            banner.className = 'text-xs p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 flex items-center gap-2';
+            banner.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 flex-shrink-0"></i><div><strong>Attenzione (Modalità Test):</strong> La pubblicazione verrà simulata e non apparirà su TikTok reale. Per pubblicare davvero, vai nelle Impostazioni e seleziona Zernio o Cookie.</div>`;
+        } else if (mode === 'zernio') {
+            banner.className = 'text-xs p-2.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 flex items-center gap-2';
+            banner.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-cyan-400 flex-shrink-0"></i><div><strong>Zernio Cloud:</strong> Invio diretto e ufficiale al tuo account TikTok tramite API Zernio.</div>`;
+        } else {
+            banner.className = 'text-xs p-2.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-300 flex items-center gap-2';
+            banner.innerHTML = `<i data-lucide="globe" class="w-4 h-4 text-slate-400 flex-shrink-0"></i><div>Invio a TikTok Studio tramite Cookie di sessione web.</div>`;
+        }
+    }
 
     document.getElementById('modal-publish').classList.remove('hidden');
     lucide.createIcons();

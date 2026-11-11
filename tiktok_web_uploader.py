@@ -296,13 +296,28 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 except Exception:
                     pass
 
-            time.sleep(3)
+            # Remove Joyride onboarding tour overlay and any interfering backdrops
+            try:
+                page.evaluate("""() => {
+                    const joyride = document.getElementById('react-joyride-portal');
+                    if (joyride) joyride.remove();
+                    document.querySelectorAll('.react-joyride__overlay, [data-test-id="overlay"], .portal-container').forEach(el => el.remove());
+                    // Click skip or finish on any tour if present
+                    const skipBtn = document.querySelector('button[aria-label="Skip"], button[aria-label="Close"], button[data-action="skip"]');
+                    if (skipBtn) skipBtn.click();
+                }""")
+            except Exception:
+                pass
 
-            # Locate Post / Pubblica button
+            time.sleep(2)
+
+            # Locate Post / Pubblica button (excluding sidebar navigation items)
             post_button_selectors = [
-                "button:has-text('Pubblica')",
-                "button:has-text('Post')",
                 "button.btn-post",
+                "button[data-tt*='post' i]:not([data-tt*='Sidebar'])",
+                "button[data-tt*='publish' i]:not([data-tt*='Sidebar'])",
+                "button:has-text('Pubblica'):not([data-tt*='Sidebar']):not([class*='Sidebar'])",
+                "button:has-text('Post'):not([data-tt*='Sidebar']):not([class*='Sidebar'])",
                 "button[type='button']:has-text('Pubblica')",
                 "button[type='button']:has-text('Post')"
             ]
@@ -311,8 +326,14 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
             for sel in post_button_selectors:
                 try:
                     btn_loc = target.locator(sel)
-                    if btn_loc.count() > 0 and btn_loc.first.is_visible():
-                        post_btn = btn_loc.first
+                    for i in range(btn_loc.count()):
+                        cand = btn_loc.nth(i)
+                        data_tt = cand.get_attribute("data-tt") or ""
+                        cls = cand.get_attribute("class") or ""
+                        if "Sidebar" not in data_tt and "Sidebar" not in cls and cand.is_visible():
+                            post_btn = cand
+                            break
+                    if post_btn:
                         break
                 except Exception:
                     pass
@@ -322,8 +343,14 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 for sel in post_button_selectors:
                     try:
                         btn_loc = page.locator(sel)
-                        if btn_loc.count() > 0 and btn_loc.first.is_visible():
-                            post_btn = btn_loc.first
+                        for i in range(btn_loc.count()):
+                            cand = btn_loc.nth(i)
+                            data_tt = cand.get_attribute("data-tt") or ""
+                            cls = cand.get_attribute("class") or ""
+                            if "Sidebar" not in data_tt and "Sidebar" not in cls and cand.is_visible():
+                                post_btn = cand
+                                break
+                        if post_btn:
                             break
                     except Exception:
                         pass
@@ -334,7 +361,7 @@ def upload_to_tiktok_via_web(video_path, caption="", privacy_level="PUBLIC_TO_EV
                 return {"success": False, "error": "Pulsante 'Pubblica' non trovato dopo il caricamento."}
 
             log_event("INFO", "Pulsante 'Pubblica' individuato. Clicco per pubblicare...")
-            post_btn.click(timeout=5000)
+            post_btn.click(timeout=8000, force=True)
 
             # Wait for publication confirmation
             time.sleep(6)
