@@ -147,24 +147,12 @@ class BotService:
                             update_reel_status(reel_id, "error", error=dl_res.get("error"))
                     else:
                         # Meta omits media_url due to copyrighted audio
-                        # Mark as audio_restricted - DO NOT launch browser loop here to prevent Render OOM crash!
                         update_reel_status(reel_id, "audio_restricted")
                         log_event(
                             "INFO",
-                            f"Reel {reel_id} ha audio con copyright (nessun URL diretto da Meta). Pronto per pubblicazione manuale o fallback singolo.",
+                            f"Reel {reel_id} ha audio con copyright (nessun URL diretto da Meta). Pronto per pubblicazione o programmazione.",
                             reel_id=reel_id
                         )
-
-            # If auto-publish is ON, automatically extract and publish any pending or audio-restricted reels
-            if auto_publish:
-                for r in reels:
-                    reel_id = r["id"]
-                    curr = get_reel(reel_id)
-                    if curr and curr.get("status") in ("audio_restricted", "new", "downloaded") and not curr.get("tiktok_publish_id"):
-                        log_event("INFO", f"Auto-pubblicazione Reel su TikTok: {reel_id}...", reel_id=reel_id)
-                        res_pub = self.publish_single_reel(reel_id)
-                        if res_pub.get("success"):
-                            published_count += 1
 
             summary = f"Controllo completato: {len(reels)} reel esaminati ({new_count} nuovi, {downloaded_count} scaricati, {published_count} pubblicati)."
             log_event("INFO", summary)

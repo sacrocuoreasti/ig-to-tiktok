@@ -92,10 +92,10 @@ def download_reel_with_browser_fallback(permalink, reel_id):
 
             page = context.new_page()
 
-            # Abort heavy static assets (images, fonts, stylesheets) to save ~250MB RAM
+            # Abort heavy static assets (images, fonts) to save RAM, keeping stylesheet for proper DOM rendering
             def abort_heavy(route):
                 rt = route.request.resource_type
-                if rt in ["image", "font", "stylesheet"]:
+                if rt in ["image", "font"]:
                     route.abort()
                 else:
                     route.continue_()
@@ -109,6 +109,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 log_event("WARNING", f"Navigazione permalink lenta: {str(ge)}", reel_id=reel_id)
 
             page.wait_for_timeout(1000)
+            log_event("INFO", f"Pagina Instagram caricata: URL={page.url}, Titolo={page.title()}", reel_id=reel_id)
 
             # Dismiss any cookie or consent dialogs that might still appear
             cookie_selectors = [
@@ -149,6 +150,24 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 if video_streams and audio_streams:
                     break
                 page.wait_for_timeout(500)
+
+            # Fallback: check og:video meta or video element src if streams were not captured via network
+            if not video_streams:
+                try:
+                    direct_src = page.evaluate("""() => {
+                        const meta = document.querySelector('meta[property="og:video"]');
+                        if (meta && meta.content) return meta.content;
+                        const v = document.querySelector('video');
+                        if (v && v.src && v.src.startsWith('http')) return v.src;
+                        return null;
+                    }""")
+                    if direct_src and ("fbcdn.net" in direct_src or ".mp4" in direct_src):
+                        log_event("INFO", f"Trovato URL video diretto nel DOM/meta: {direct_src[:60]}...", reel_id=reel_id)
+                        video_streams.append({"url": direct_src, "quality": 720})
+                except Exception:
+                    pass
+
+            log_event("INFO", f"Risultato cattura stream: {len(video_streams)} video, {len(audio_streams)} audio", reel_id=reel_id)
 
             browser.close()
 

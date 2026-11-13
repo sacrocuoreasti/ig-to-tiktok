@@ -10,7 +10,7 @@ from models import (
 )
 from instagram_client import InstagramClient
 from tiktok_client import TikTokClient
-from bot_service import bot
+from bot_service import bot, browser_lock
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "ig-to-tiktok-secret-key-2026"
@@ -126,8 +126,9 @@ def api_download_reel(reel_id):
         ig = InstagramClient()
         res = ig.download_video(reel["media_url"], reel_id)
     else:
-        from instagram_scraper import download_reel_with_browser_fallback
-        res = download_reel_with_browser_fallback(reel.get("permalink"), reel_id)
+        with browser_lock:
+            from instagram_scraper import download_reel_with_browser_fallback
+            res = download_reel_with_browser_fallback(reel.get("permalink"), reel_id)
 
     if res.get("success"):
         from models import update_reel_status
