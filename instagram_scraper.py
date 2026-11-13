@@ -29,7 +29,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
         u = res.url
         ct = res.headers.get("content-type", "")
         # Look for Facebook/Instagram CDN media streams
-        if "efg=" in u or ("fbcdn.net" in u and ("video" in ct or "audio" in ct or ".mp4" in u)):
+        if "fbcdn.net" in u and ("video" in ct or "audio" in ct or ".mp4" in u or "efg=" in u):
             try:
                 metadata = ""
                 if "efg=" in u:
@@ -38,11 +38,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     metadata = base64.b64decode(padded).decode("utf-8", errors="ignore")
 
                 # Detect audio stream
-                if "audio" in metadata or "audio" in ct:
+                if "_audio" in metadata or "heaac" in metadata or "audio/" in ct:
                     if not any(a["url"] == u for a in audio_streams):
                         audio_streams.append({"url": u, "meta": metadata})
                 # Detect video stream
-                elif "dash" in metadata or "video" in ct or ".mp4" in u or "vencode_tag" in metadata:
+                elif "video" in ct or "dash" in metadata or "baseline" in metadata or ".mp4" in u or "vencode_tag" in metadata:
                     # Estimate quality from bitrate or tag
                     quality = 360
                     if "1080" in metadata or "1080p" in metadata:
@@ -52,7 +52,6 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     elif "540" in metadata:
                         quality = 540
                     elif "bitrate" in metadata:
-                        # Extract bitrate value if available
                         bm = re.search(r'"bitrate":(\d+)', metadata)
                         if bm:
                             quality = int(bm.group(1))
@@ -74,9 +73,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
-                    "--single-process",
                     "--no-zygote",
-                    "--renderer-process-limit=1",
                     "--disable-background-networking",
                     "--disable-default-apps",
                     "--disable-extensions",
@@ -93,14 +90,6 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
             )
 
-            # Pre-inject common Instagram cookies to avoid consent dialogs
-            context.add_cookies([
-                {"name": "ig_did", "value": "A1B2C3D4-E5F6-7890-ABCD-1234567890AB", "domain": ".instagram.com", "path": "/"},
-                {"name": "csrftoken", "value": "1234567890abcdef", "domain": ".instagram.com", "path": "/"},
-                {"name": "ig_nrcb", "value": "1", "domain": ".instagram.com", "path": "/"},
-                {"name": "datr", "value": "ab12cd34ef56gh78ij90kl12", "domain": ".instagram.com", "path": "/"}
-            ])
-
             page = context.new_page()
 
             # Abort heavy static assets (images, fonts, stylesheets) to save ~250MB RAM
@@ -115,11 +104,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
             page.on("response", on_response)
 
             try:
-                page.goto(permalink, timeout=35000, wait_until="domcontentloaded")
+                page.goto(permalink, timeout=25000, wait_until="domcontentloaded")
             except Exception as ge:
                 log_event("WARNING", f"Navigazione permalink lenta: {str(ge)}", reel_id=reel_id)
 
-            time.sleep(1.5)
+            page.wait_for_timeout(1000)
 
             # Dismiss any cookie or consent dialogs that might still appear
             cookie_selectors = [
@@ -139,8 +128,8 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 try:
                     btn = page.locator(sel).first
                     if btn.count() > 0 and btn.is_visible():
-                        btn.click(timeout=2000)
-                        time.sleep(0.5)
+                        btn.click(timeout=1500)
+                        page.wait_for_timeout(500)
                         break
                 except Exception:
                     pass
@@ -155,11 +144,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 });
             }""")
 
-            # Wait briefly for streams to arrive
-            for _ in range(8):
+            # Wait briefly for streams to arrive using Playwright event loop pump
+            for _ in range(12):
                 if video_streams and audio_streams:
                     break
-                time.sleep(0.5)
+                page.wait_for_timeout(500)
 
             browser.close()
 

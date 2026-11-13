@@ -174,7 +174,7 @@
 
             <!-- Filter Buttons -->
             <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div class="flex items-center gap-2" id="filter-buttons">
+                <div class="flex flex-wrap items-center gap-2" id="filter-buttons">
                     <button onclick="setFilter('all')" class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700" data-filter="all">Tutti (<span id="count-all">0</span>)</button>
                     <button onclick="setFilter('downloaded')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="downloaded">Pronti (<span id="count-downloaded">0</span>)</button>
                     <button onclick="setFilter('published')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="published">Pubblicati (<span id="count-published">0</span>)</button>
@@ -182,9 +182,16 @@
                     <button onclick="setFilter('error')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200" data-filter="error">Errori (<span id="count-error">0</span>)</button>
                 </div>
                 
-                <div class="text-xs text-slate-400 flex items-center gap-1.5">
-                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                    <span>I Reel con audio licenziato possono essere completati caricando il file MP4 originale</span>
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-400 hover:text-slate-200 select-none bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800/80 transition">
+                        <input type="checkbox" id="checkbox-show-skipped" onchange="toggleShowSkipped(this.checked)" class="rounded bg-slate-900 border-slate-700 text-pink-500 focus:ring-0 w-3.5 h-3.5">
+                        <span>Mostra ignorati (<span id="count-skipped">0</span>)</span>
+                    </label>
+
+                    <div class="hidden md:flex text-xs text-slate-400 items-center gap-1.5">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                        <span>Audio protetto gestito con estrazione automatica o upload MP4</span>
+                    </div>
                 </div>
             </div>
 
@@ -607,7 +614,7 @@
                     <div id="schedule-datetime-container" class="hidden pt-1">
                         <label class="block text-[11px] font-medium text-purple-300 mb-1">Data e Ora di Pubblicazione</label>
                         <input type="datetime-local" id="modal-publish-datetime" class="w-full bg-slate-900 border border-purple-500/30 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500">
-                        <p class="text-[10px] text-slate-400 mt-1">Zernio pubblicherà automaticamente il video su TikTok all'orario indicato.</p>
+                        <p class="text-[10px] text-purple-300/80 mt-1">La data di programmazione deve essere futura (es. domani). Per pubblicare subito con data attuale, seleziona "⚡ Pubblica Subito".</p>
                     </div>
                 </div>
             </div>

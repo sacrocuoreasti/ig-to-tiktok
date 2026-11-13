@@ -276,13 +276,16 @@ def get_reel(reel_id):
     conn.close()
     return dict(row) if row else None
 
-def get_reels(limit=50, status=None):
+def get_reels(limit=50, status=None, include_skipped=False):
     conn = get_db_connection()
     cursor = conn.cursor()
     if status and status != "all":
         cursor.execute("SELECT * FROM reels WHERE status = ? ORDER BY timestamp DESC LIMIT ?", (status, limit))
     else:
-        cursor.execute("SELECT * FROM reels ORDER BY timestamp DESC LIMIT ?", (limit,))
+        if include_skipped:
+            cursor.execute("SELECT * FROM reels ORDER BY timestamp DESC LIMIT ?", (limit,))
+        else:
+            cursor.execute("SELECT * FROM reels WHERE status != 'skipped' ORDER BY timestamp DESC LIMIT ?", (limit,))
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -306,13 +309,17 @@ def get_stats():
     cursor.execute("SELECT COUNT(*) FROM reels WHERE status = 'audio_restricted'")
     restricted = cursor.fetchone()[0]
 
+    cursor.execute("SELECT COUNT(*) FROM reels WHERE status = 'skipped'")
+    skipped = cursor.fetchone()[0]
+
     conn.close()
     return {
         "total_reels": total_reels,
         "published": published,
         "pending": pending,
         "errors": errors,
-        "restricted": restricted
+        "restricted": restricted,
+        "skipped": skipped
     }
 
 def log_event(level, message, details=None, reel_id=None):

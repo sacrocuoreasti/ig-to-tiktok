@@ -113,6 +113,9 @@ async function fetchStatus() {
         document.getElementById('count-downloaded').innerText = stats.pending || 0;
         document.getElementById('count-restricted').innerText = stats.restricted || 0;
         document.getElementById('count-error').innerText = stats.errors || 0;
+        if (document.getElementById('count-skipped')) {
+            document.getElementById('count-skipped').innerText = stats.skipped || 0;
+        }
 
         // Banner info
         if (ig && ig.username) {
@@ -172,9 +175,16 @@ async function forceSync() {
 // ----------------------------------------------------
 // REELS FEED & CARDS
 // ----------------------------------------------------
+let showSkipped = false;
+
+function toggleShowSkipped(checked) {
+    showSkipped = Boolean(checked);
+    loadReels();
+}
+
 async function loadReels() {
     try {
-        const res = await fetch(`/api/reels?status=${currentFilter}&limit=60`);
+        const res = await fetch(`/api/reels?status=${currentFilter}&limit=60&include_skipped=${showSkipped}`);
         const data = await res.json();
         if (data.success) {
             allReels = data.reels;
@@ -293,13 +303,27 @@ function createReelCardHtml(reel) {
                     ` : ''}
 
                     <div class="flex items-center justify-between gap-1.5">
-                        ${reel.status.startsWith('published') ? `
+                        ${reel.status === 'skipped' ? `
+                            <button onclick="unskipReel('${reel.id}')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition">
+                                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                                <span>Ripristina Reel</span>
+                            </button>
+                            <button onclick="openPublishModal('${reel.id}', 'now')" title="Pubblica comunque subito" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="openPublishModal('${reel.id}', 'schedule')" title="Programma comunque" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 transition">
+                                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                            </button>
+                        ` : reel.status.startsWith('published') ? `
                             <button onclick="openPublishModal('${reel.id}', 'now')" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
                                 <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
                                 <span>Ripubblica</span>
                             </button>
                             <button onclick="openPublishModal('${reel.id}', 'schedule')" title="Programma ripubblicazione" class="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition">
                                 <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
+                                <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
                             </button>
                         ` : `
                             <button onclick="openPublishModal('${reel.id}', 'now')" class="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-500 to-cyan-500 hover:opacity-95 text-slate-950 shadow-md shadow-pink-500/20 transition">
@@ -315,11 +339,10 @@ function createReelCardHtml(reel) {
                                     <i data-lucide="upload" class="w-3.5 h-3.5"></i>
                                 </button>
                             ` : ''}
+                            <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
+                                <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+                            </button>
                         `}
-
-                        <button onclick="skipReel('${reel.id}')" title="Ignora Reel" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
-                            <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -360,14 +383,17 @@ function togglePublishActionType(type) {
         if (scheduleBox) scheduleBox.classList.remove('hidden');
         if (btn) btn.innerHTML = `<i data-lucide="clock" class="w-4 h-4"></i><span>Programma su TikTok</span>`;
         
-        // Default datetime to tomorrow at 12:00 if empty
+        // Default datetime to tomorrow at 12:00 if empty or in the past
         const dtInput = document.getElementById('modal-publish-datetime');
-        if (dtInput && !dtInput.value) {
-            const tmrw = new Date();
-            tmrw.setDate(tmrw.getDate() + 1);
-            tmrw.setHours(12, 0, 0, 0);
-            const pad = n => String(n).padStart(2, '0');
-            dtInput.value = `${tmrw.getFullYear()}-${pad(tmrw.getMonth()+1)}-${pad(tmrw.getDate())}T${pad(tmrw.getHours())}:${pad(tmrw.getMinutes())}`;
+        if (dtInput) {
+            const curVal = dtInput.value ? new Date(dtInput.value) : null;
+            if (!curVal || isNaN(curVal.getTime()) || curVal <= new Date()) {
+                const tmrw = new Date();
+                tmrw.setDate(tmrw.getDate() + 1);
+                tmrw.setHours(12, 0, 0, 0);
+                const pad = n => String(n).padStart(2, '0');
+                dtInput.value = `${tmrw.getFullYear()}-${pad(tmrw.getMonth()+1)}-${pad(tmrw.getDate())}T${pad(tmrw.getHours())}:${pad(tmrw.getMinutes())}`;
+            }
         }
     } else {
         if (radioNow) radioNow.checked = true;
@@ -553,6 +579,22 @@ async function skipReel(reelId) {
         fetchStatus();
     } catch (err) {
         showToast('Errore operazione', 'error');
+    }
+}
+
+async function unskipReel(reelId) {
+    try {
+        const res = await fetch(`/api/reels/${reelId}/unskip`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Reel ripristinato con successo!', 'success');
+            loadReels();
+            fetchStatus();
+        } else {
+            showToast(`Errore: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        showToast('Errore di comunicazione', 'error');
     }
 }
 

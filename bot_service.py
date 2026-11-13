@@ -320,5 +320,20 @@ class BotService:
         log_event("INFO", f"Reel {reel_id} contrassegnato come ignorato.", reel_id=reel_id)
         return {"success": True}
 
+    def unskip_reel(self, reel_id):
+        """Restores a skipped reel to active status (audio_restricted, downloaded, or new)."""
+        reel = get_reel(reel_id)
+        if not reel:
+            return {"success": False, "error": "Reel non trovato"}
+        new_status = "new"
+        expected_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
+        if (reel.get("video_path") and os.path.exists(reel.get("video_path"))) or expected_path.exists():
+            new_status = "downloaded"
+        elif not reel.get("has_media_url") and not reel.get("media_url"):
+            new_status = "audio_restricted"
+        update_reel_status(reel_id, new_status, error=None)
+        log_event("INFO", f"Reel {reel_id} ripristinato dallo stato ignorato a '{new_status}'.", reel_id=reel_id)
+        return {"success": True, "status": new_status}
+
 # Singleton instance
 bot = BotService()

@@ -105,7 +105,8 @@ def api_get_reels():
 
     status = request.args.get("status", "all")
     limit = int(request.args.get("limit", 60))
-    reels = get_reels(limit=limit, status=status)
+    include_skipped = request.args.get("include_skipped", "false").lower() == "true"
+    reels = get_reels(limit=limit, status=status, include_skipped=include_skipped)
     return jsonify({"success": True, "reels": reels})
 
 @app.route("/api/reels/<reel_id>")
@@ -163,6 +164,11 @@ def api_upload_reel_video(reel_id):
 @app.route("/api/reels/<reel_id>/skip", methods=["POST"])
 def api_skip_reel(reel_id):
     res = bot.skip_reel(reel_id)
+    return jsonify(res)
+
+@app.route("/api/reels/<reel_id>/unskip", methods=["POST"])
+def api_unskip_reel(reel_id):
+    res = bot.unskip_reel(reel_id)
     return jsonify(res)
 
 @app.route("/api/video/<reel_id>")
