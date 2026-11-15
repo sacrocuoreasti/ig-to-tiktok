@@ -2,6 +2,8 @@ import gc
 import os
 import subprocess
 import tempfile
+import sys
+from urllib.parse import urlsplit, unquote
 from pathlib import Path
 
 import requests
@@ -19,6 +21,21 @@ USER_AGENT = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
 HEADERS = {'User-Agent': USER_AGENT, 'Referer': 'https://www.instagram.com/',
            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'}
+
+
+def _proxy_settings():
+    url = os.environ.get('INSTAGRAM_PROXY_URL', '').strip()
+    if not url:
+        return {}, None
+    parts = urlsplit(url)
+    if parts.scheme not in ('http', 'https') or not parts.hostname:
+        raise ValueError('INSTAGRAM_PROXY_URL richiede un proxy HTTP/HTTPS')
+    host = f'[{parts.hostname}]' if ':' in parts.hostname else parts.hostname
+    browser = {'server': f'{parts.scheme}://{host}' + (f':{parts.port}' if parts.port else '')}
+    if parts.username:
+        browser['username'] = unquote(parts.username)
+        browser['password'] = unquote(parts.password or '')
+    return {'http': url, 'https': url}, browser
 
 
 def _capture_browser_streams(permalink, reel_id):
@@ -39,9 +56,11 @@ def _capture_browser_streams(permalink, reel_id):
             pass
 
     with sync_playwright() as playwright:
+        _, proxy = _proxy_settings()
         browser = playwright.chromium.launch(
             headless=True,
             channel=os.environ.get('INSTAGRAM_BROWSER_CHANNEL') or None,
+            proxy=proxy,
             args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
                   '--autoplay-policy=no-user-gesture-required'],
         )
@@ -182,6 +201,7 @@ def _download_streams(streams, reel_id):
         return {'success': False, 'error': 'Metadati audio del Reel non ancora disponibili da Instagram'}
     with requests.Session() as session, tempfile.TemporaryDirectory(prefix='reel-', dir=str(DOWNLOADS_DIR)) as tmp:
         session.headers.update(HEADERS)
+        session.proxies.update(_proxy_settings()[0])
         tmp = Path(tmp)
         for video_url, audio_url in options:
             try:
@@ -207,6 +227,40 @@ def _download_streams(streams, reel_id):
     return {'success': False, 'error': 'Recupero audio Instagram temporaneamente non riuscito; il bot riproverà automaticamente'}
 
 
+def _download_with_extractor(permalink, reel_id):
+    """Independent extraction API/format selection, isolated from the browser."""
+    log_event('INFO', 'Provo il motore alternativo yt-dlp per recuperare il video completo con audio.', reel_id=reel_id)
+    try:
+        with tempfile.TemporaryDirectory(prefix='extract-', dir=str(DOWNLOADS_DIR)) as tmp:
+            tmp = Path(tmp)
+            env = os.environ.copy()
+            proxies, _ = _proxy_settings()
+            if proxies:
+                env.update(HTTP_PROXY=proxies['http'], HTTPS_PROXY=proxies['https'])
+            subprocess.run([
+                sys.executable, '-m', 'yt_dlp', '--no-playlist', '--no-progress',
+                '--quiet', '--no-warnings', '--socket-timeout', '12', '--retries', '1',
+                '--extractor-retries', '1', '--format', 'bv*[height<=1280]+ba/b[height<=1280]/bv*+ba/b',
+                '--merge-output-format', 'mp4', '-o', str(tmp / 'source.%(ext)s'), permalink,
+            ], capture_output=True, check=True, timeout=70, env=env)
+            for source in tmp.glob('source.*'):
+                if not validate_video_audio(source)['success']:
+                    continue
+                output = tmp / 'complete.mp4'
+                _mux_audio(source, None, output)
+                check = validate_video_audio(output)
+                if check['success']:
+                    destination = DOWNLOADS_DIR / f'{reel_id}.mp4'
+                    os.replace(output, destination)
+                    log_event('SUCCESS', f'Reel {reel_id}: audio recuperato automaticamente dal motore alternativo '
+                              f'({check["audio_codec"]}, picco {check["peak_db"]} dB).', reel_id=reel_id)
+                    return {'success': True, 'file_path': str(destination),
+                            'file_size': destination.stat().st_size, 'audio_verified': True}
+    except (subprocess.SubprocessError, OSError, ValueError):
+        log_event('WARNING', 'Il motore alternativo non ha ottenuto un file con audio da Instagram.', reel_id=reel_id)
+    return {'success': False}
+
+
 def download_reel_with_browser_fallback(permalink, reel_id):
     """Resolve audio from target-specific page manifests, then merge automatically."""
     if not shortcode_from_url(permalink):
@@ -215,7 +269,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
     try:
         # Lightweight path first; no Chromium or audio playback is needed.
         try:
-            response = requests.get(permalink, headers=HEADERS, timeout=(10, 15))
+            response = requests.get(permalink, headers=HEADERS, timeout=(10, 15), proxies=_proxy_settings()[0])
             response.raise_for_status()
             metadata = streams_from_html(response.text, permalink)
             if (metadata['video'] and metadata['audio']) or metadata['progressive']:
@@ -226,7 +280,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
             pass
         # Instagram may render the metadata only after JavaScript / cookie consent.
         metadata = _capture_browser_streams(permalink, reel_id)
-        return _download_streams(metadata, reel_id)
+        result = _download_streams(metadata, reel_id)
+        if result['success']:
+            return result
+        alternative = _download_with_extractor(permalink, reel_id)
+        return alternative if alternative['success'] else result
     except Exception as error:
         log_event('WARNING', f'Estrazione Instagram da riprovare ({type(error).__name__}).', reel_id=reel_id)
         return {'success': False, 'error': 'Instagram non ha completato la risposta audio; nuovo tentativo automatico al prossimo controllo'}

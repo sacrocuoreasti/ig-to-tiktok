@@ -24,6 +24,30 @@ def page_html():
 
 
 class InstagramMediaTests(unittest.TestCase):
+    def test_alternate_extractor_is_tried_after_licensing_refusal(self):
+        response = MagicMock(text='<html>no manifest</html>')
+        with patch('instagram_scraper.requests.get', return_value=response), \
+                patch('instagram_scraper._capture_browser_streams', return_value=empty_streams()), \
+                patch('instagram_scraper._download_streams', return_value={'success': False, 'audio_unavailable': True}), \
+                patch('instagram_scraper._download_with_extractor', return_value={'success': True, 'audio_verified': True}) as alternative, \
+                patch('instagram_scraper.log_event'):
+            result = download_reel_with_browser_fallback(URL, 'test')
+        self.assertTrue(result['audio_verified'])
+        alternative.assert_called_once_with(URL, 'test')
+
+    def test_proxy_credentials_are_not_part_of_browser_server_url(self):
+        from instagram_scraper import _proxy_settings
+        with patch.dict('os.environ', {'INSTAGRAM_PROXY_URL': 'http://user:p%40ss@proxy.example:8080'}):
+            requests_proxy, browser = _proxy_settings()
+        self.assertEqual(browser, {'server': 'http://proxy.example:8080', 'username': 'user', 'password': 'p@ss'})
+        self.assertEqual(requests_proxy['http'], requests_proxy['https'])
+
+    def test_invalid_proxy_is_rejected(self):
+        from instagram_scraper import _proxy_settings
+        with patch.dict('os.environ', {'INSTAGRAM_PROXY_URL': 'file:///private/data'}):
+            with self.assertRaises(ValueError):
+                _proxy_settings()
+
     def test_explicit_licensing_refusal_is_reported_without_download(self):
         from instagram_scraper import _download_streams
         streams = empty_streams()
