@@ -70,6 +70,8 @@ def _capture_browser_streams(permalink, reel_id):
                 availability = audio_status_from_html(html, permalink)
                 if availability:
                     log_event('INFO', f'Disponibilità audio dichiarata da Instagram: {availability}', reel_id=reel_id)
+                    if availability.get('should_mute_audio') and not availability.get('has_audio'):
+                        metadata['audio_blocked_reason'] = availability.get('reason') or 'Audio non disponibile da questa rete'
                 if metadata['video'] and metadata['audio']:
                     break
                 for label in ('Consenti tutti i cookie', 'Consenti tutti', 'Allow all cookies',
@@ -165,6 +167,11 @@ def _mux_audio(video, audio, output):
 
 def _download_streams(streams, reel_id):
     destination = DOWNLOADS_DIR / f'{reel_id}.mp4'
+    if streams.get('audio_blocked_reason') and not streams['audio']:
+        reason = streams['audio_blocked_reason']
+        log_event('WARNING', f'Instagram non fornisce audio al server per questo Reel: {reason}', reel_id=reel_id)
+        return {'success': False, 'audio_unavailable': True,
+                'error': f'Instagram non fornisce la traccia audio dalla rete del server: {reason}'}
     options = []
     if streams['video'] and streams['audio']:
         # Try alternate audio representations when a CDN rendition has expired.

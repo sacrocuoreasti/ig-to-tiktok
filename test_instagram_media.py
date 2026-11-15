@@ -24,6 +24,16 @@ def page_html():
 
 
 class InstagramMediaTests(unittest.TestCase):
+    def test_explicit_licensing_refusal_is_reported_without_download(self):
+        from instagram_scraper import _download_streams
+        streams = empty_streams()
+        streams['audio_blocked_reason'] = 'Licenza non disponibile'
+        with patch('instagram_scraper.requests.Session') as session, patch('instagram_scraper.log_event'):
+            result = _download_streams(streams, 'test')
+        self.assertTrue(result['audio_unavailable'])
+        self.assertIn('Licenza non disponibile', result['error'])
+        session.assert_not_called()
+
     def test_extracts_target_audio_even_without_player_requests(self):
         streams = streams_from_html(page_html(), URL)
         self.assertEqual(len(streams['audio']), 1)
