@@ -133,6 +133,32 @@ def streams_from_html(html, permalink):
     return streams
 
 
+def audio_status_from_html(html, permalink):
+    """Return only availability flags, never cookies or signed media URLs."""
+    parser = _Scripts()
+    parser.feed(html)
+    shortcode = shortcode_from_url(permalink)
+    for script in parser.scripts:
+        try:
+            pending = [json.loads(script)]
+        except ValueError:
+            continue
+        while pending:
+            node = pending.pop()
+            if isinstance(node, list):
+                pending.extend(node)
+            elif isinstance(node, dict):
+                if node.get('code', node.get('shortcode')) == shortcode and 'has_audio' in node:
+                    clips = node.get('clips_metadata') or {}
+                    music = clips.get('music_info') or {}
+                    consumption = music.get('music_consumption_info') or {}
+                    return {'has_audio': node['has_audio'],
+                            'should_mute_audio': consumption.get('should_mute_audio'),
+                            'reason': consumption.get('should_mute_audio_reason')}
+                pending.extend(v for v in node.values() if isinstance(v, (list, dict)))
+    return {}
+
+
 def network_stream(url, content_type):
     if not is_media_url(url):
         return None

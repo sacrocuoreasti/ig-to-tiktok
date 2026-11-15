@@ -41,7 +41,9 @@ class InstagramMediaTests(unittest.TestCase):
             factory.return_value.__enter__.return_value = playwright
             streams = _capture_browser_streams(URL, 'test')
         self.assertEqual(len(streams['audio']), 1)
-        page.evaluate.assert_not_called()
+        # Only inspect codecs; do not unmute or play the video to discover audio.
+        page.evaluate.assert_called_once()
+        self.assertIn('canPlayType', page.evaluate.call_args.args[0])
         browser.close.assert_called_once()
 
     def test_only_other_reel_returns_no_streams(self):

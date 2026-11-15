@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 
 from config import DOWNLOADS_DIR
 from instagram_media import (
-    empty_streams, merge_streams, network_stream, shortcode_from_url,
+    audio_status_from_html, empty_streams, merge_streams, network_stream, shortcode_from_url,
     streams_from_html, streams_from_payload,
 )
 from media_validation import validate_video_audio
@@ -41,6 +41,7 @@ def _capture_browser_streams(permalink, reel_id):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
+            channel=os.environ.get('INSTAGRAM_BROWSER_CHANNEL') or None,
             args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
                   '--autoplay-policy=no-user-gesture-required'],
         )
@@ -48,6 +49,11 @@ def _capture_browser_streams(permalink, reel_id):
             context = browser.new_context(user_agent=USER_AGENT, locale='it-IT',
                                           viewport={'width': 1280, 'height': 800})
             page = context.new_page()
+            codecs = page.evaluate('''() => ({
+                aac: document.createElement('audio').canPlayType('audio/mp4; codecs="mp4a.40.2"'),
+                heaac: document.createElement('audio').canPlayType('audio/mp4; codecs="mp4a.40.5"')
+            })''')
+            log_event('INFO', f'Codec audio browser Instagram: {codecs}', reel_id=reel_id)
             page.route('**/*', lambda route: route.abort()
                        if route.request.resource_type in ('image', 'font') else route.continue_())
             page.on('response', on_response)
@@ -59,7 +65,11 @@ def _capture_browser_streams(permalink, reel_id):
                 except Exception:
                     log_event('WARNING', 'Caricamento pagina Instagram lento; analizzo i metadati disponibili.', reel_id=reel_id)
                 page.wait_for_timeout(1200)
-                merge_streams(metadata, streams_from_html(page.content(), permalink))
+                html = page.content()
+                merge_streams(metadata, streams_from_html(html, permalink))
+                availability = audio_status_from_html(html, permalink)
+                if availability:
+                    log_event('INFO', f'Disponibilità audio dichiarata da Instagram: {availability}', reel_id=reel_id)
                 if metadata['video'] and metadata['audio']:
                     break
                 for label in ('Consenti tutti i cookie', 'Consenti tutti', 'Allow all cookies',

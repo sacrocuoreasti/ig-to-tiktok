@@ -3,6 +3,7 @@ FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
+ENV INSTAGRAM_BROWSER_CHANNEL=chrome
 
 # Install system dependencies including ffmpeg
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
@@ -11,8 +12,9 @@ RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Ensure Chromium headless is ready
-RUN playwright install chromium
+# Google Chrome includes AAC media codecs that bundled Linux Chromium lacks.
+# Instagram uses browser codec capabilities when choosing its audio renditions.
+RUN playwright install chrome
 
 # Copy application code
 COPY . .
