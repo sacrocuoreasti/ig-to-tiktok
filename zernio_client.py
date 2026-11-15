@@ -202,7 +202,7 @@ class ZernioClient:
 
             # Check if specific platform failed or was queued
             tiktok_url = None
-            platform_status = "published"
+            is_scheduled = bool(scheduled_for)
             scheduled_at = None
             warning_msg = None
             platforms_res = post_obj.get("platforms", [])
@@ -213,14 +213,14 @@ class ZernioClient:
                         fail_reason = p.get("error") or p.get("message") or "Errore pubblicazione TikTok da Zernio"
                         log_event("ERROR", f"Zernio ha segnalato errore su TikTok: {fail_reason}", details=str(p))
                         return {"success": False, "error": fail_reason, "raw": data}
-                    elif p_status in ("pending", "scheduled"):
-                        platform_status = "scheduled"
-                        scheduled_at = p.get("scheduledFor") or post_obj.get("scheduledFor")
+                    elif p_status == "scheduled" or is_scheduled:
+                        is_scheduled = True
+                        scheduled_at = p.get("scheduledFor") or post_obj.get("scheduledFor") or scheduled_for
                         if p.get("errorMessage"):
                             warning_msg = p.get("errorMessage")
                     tiktok_url = p.get("platformPostUrl")
 
-            if scheduled_for or platform_status == "scheduled":
+            if is_scheduled:
                 log_event("SUCCESS", f"Video programmato per TikTok tramite Zernio! Post ID: {post_id} (Data: {scheduled_at or scheduled_for})")
                 return {
                     "success": True,
@@ -232,13 +232,13 @@ class ZernioClient:
                     "mode": "zernio"
                 }
 
-            log_event("SUCCESS", f"Video pubblicato con successo su TikTok tramite Zernio! Post ID: {post_id}")
+            log_event("SUCCESS", f"Video inviato con successo a TikTok tramite Zernio! Post ID: {post_id}")
             return {
                 "success": True,
                 "publish_id": str(post_id),
                 "tiktok_url": tiktok_url,
                 "mode": "zernio",
-                "status": "PUBLISHED_VIA_ZERNIO"
+                "status": "published"
             }
 
         except Exception as e:

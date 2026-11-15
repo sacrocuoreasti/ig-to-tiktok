@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from config import DB_PATH, DEFAULT_SETTINGS
 
 SKIPPED_REELS_FILE = Path(__file__).resolve().parent / "skipped_reels.json"
+PUBLISHED_REELS_FILE = Path(__file__).resolve().parent / "published_reels.json"
 
 def get_skipped_reel_ids():
     if SKIPPED_REELS_FILE.exists():
@@ -34,6 +35,45 @@ def remove_skipped_reel_id(reel_id):
             json.dump(sorted(list(skipped)), f, indent=2)
     except Exception:
         pass
+
+def get_published_reels():
+    if PUBLISHED_REELS_FILE.exists():
+        try:
+            with open(PUBLISHED_REELS_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return {str(k): v for k, v in data.items()}
+        except Exception:
+            return {}
+    return {}
+
+def add_published_reel(reel_id, data=None):
+    published = get_published_reels()
+    reel_id_str = str(reel_id)
+    if reel_id_str not in published:
+        published[reel_id_str] = {}
+    if data and isinstance(data, dict):
+        for k, v in data.items():
+            if v is not None:
+                published[reel_id_str][k] = v
+    if "status" not in published[reel_id_str]:
+        published[reel_id_str]["status"] = "published"
+    try:
+        with open(PUBLISHED_REELS_FILE, "w") as f:
+            json.dump(published, f, indent=2)
+    except Exception:
+        pass
+
+def remove_published_reel(reel_id):
+    published = get_published_reels()
+    reel_id_str = str(reel_id)
+    if reel_id_str in published:
+        del published[reel_id_str]
+        try:
+            with open(PUBLISHED_REELS_FILE, "w") as f:
+                json.dump(published, f, indent=2)
+        except Exception:
+            pass
 
 def get_db_connection():
     conn = sqlite3.connect(str(DB_PATH))
@@ -194,14 +234,27 @@ def save_or_update_reel(reel_data):
     now_iso = datetime.utcnow().isoformat()
     reel_id_str = str(reel_data["id"])
 
-    cursor.execute("SELECT id, status, video_path FROM reels WHERE id = ?", (reel_id_str,))
+    cursor.execute("SELECT id, status, video_path, tiktok_url, tiktok_publish_id FROM reels WHERE id = ?", (reel_id_str,))
     existing = cursor.fetchone()
 
     skipped_ids = get_skipped_reel_ids()
     is_permanently_skipped = reel_id_str in skipped_ids
 
+    published_map = get_published_reels()
+    is_permanently_published = reel_id_str in published_map
+    published_info = published_map.get(reel_id_str, {})
+
     if existing:
-        target_status = "skipped" if (is_permanently_skipped or existing["status"] == "skipped") else existing["status"]
+        if is_permanently_skipped or existing["status"] == "skipped":
+            target_status = "skipped"
+        elif is_permanently_published or existing["status"] in ("published", "published_test"):
+            target_status = "published"
+        else:
+            target_status = existing["status"]
+
+        tiktok_url = published_info.get("tiktok_url") or existing["tiktok_url"]
+        tiktok_id = published_info.get("publish_id") or existing["tiktok_publish_id"]
+
         cursor.execute("""
             UPDATE reels SET
                 caption = coalesce(?, caption),
@@ -209,7 +262,9 @@ def save_or_update_reel(reel_data):
                 thumbnail_url = coalesce(?, thumbnail_url),
                 media_url = coalesce(?, media_url),
                 has_media_url = coalesce(?, has_media_url),
-                status = ?
+                status = ?,
+                tiktok_url = coalesce(?, tiktok_url),
+                tiktok_publish_id = coalesce(?, tiktok_publish_id)
             WHERE id = ?
         """, (
             reel_data.get("caption"),
@@ -218,19 +273,31 @@ def save_or_update_reel(reel_data):
             reel_data.get("media_url"),
             1 if reel_data.get("media_url") else 0,
             target_status,
+            tiktok_url,
+            tiktok_id,
             reel_id_str
         ))
         conn.commit()
         conn.close()
         return False, target_status  # is_new = False
     else:
-        initial_status = "skipped" if is_permanently_skipped else reel_data.get("status", "new")
+        if is_permanently_skipped:
+            initial_status = "skipped"
+        elif is_permanently_published:
+            initial_status = published_info.get("status", "published")
+        else:
+            initial_status = reel_data.get("status", "new")
+
+        tiktok_url = published_info.get("tiktok_url")
+        tiktok_id = published_info.get("publish_id")
+        pub_at = now_iso if is_permanently_published else None
+
         cursor.execute("""
             INSERT INTO reels (
                 id, caption, media_type, media_product_type, permalink,
                 thumbnail_url, media_url, has_media_url, video_path,
-                timestamp, status, discovered_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timestamp, status, discovered_at, tiktok_url, tiktok_publish_id, published_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             reel_id_str,
             reel_data.get("caption", ""),
@@ -243,12 +310,16 @@ def save_or_update_reel(reel_data):
             reel_data.get("video_path"),
             reel_data.get("timestamp", ""),
             initial_status,
-            now_iso
+            now_iso,
+            tiktok_url,
+            tiktok_id,
+            pub_at
         ))
         conn.commit()
         conn.close()
-        # If it was in skipped_reels.json, never treat it as new for auto-publishing
-        return (not is_permanently_skipped), initial_status
+        # If it was in skipped_reels.json or published_reels.json, NEVER treat as new
+        is_new = (not is_permanently_skipped) and (not is_permanently_published)
+        return is_new, initial_status
 
 def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None, tiktok_url=None, scheduled_for=None):
     conn = get_db_connection()
@@ -291,21 +362,42 @@ def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_
     conn.commit()
     conn.close()
 
+    # Persist in published_reels.json if published
+    if status in ("published", "published_test"):
+        add_published_reel(reel_id, {
+            "status": status,
+            "publish_id": tiktok_id,
+            "tiktok_url": tiktok_url
+        })
+
 def update_reel_tiktok_url_by_post_id(post_id, tiktok_url, platform_post_id=None):
     """Updates tiktok_url and optionally tiktok_status/status when Zernio resolves the URL."""
     if not post_id or not tiktok_url:
         return False
     conn = get_db_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT id FROM reels WHERE tiktok_publish_id = ?", (str(post_id),))
+    row = cursor.fetchone()
+    reel_id = row["id"] if row else None
+
     cursor.execute("""
         UPDATE reels SET
             tiktok_url = ?,
-            tiktok_status = 'published'
+            tiktok_status = 'published',
+            status = 'published'
         WHERE tiktok_publish_id = ?
     """, (tiktok_url, str(post_id)))
     affected = cursor.rowcount
     conn.commit()
     conn.close()
+
+    if reel_id:
+        add_published_reel(reel_id, {
+            "tiktok_url": tiktok_url,
+            "publish_id": str(post_id),
+            "status": "published"
+        })
+
     return affected > 0
 
 def get_reel(reel_id):

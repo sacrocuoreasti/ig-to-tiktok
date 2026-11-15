@@ -391,16 +391,22 @@ function togglePublishActionType(type) {
         if (scheduleBox) scheduleBox.classList.remove('hidden');
         if (btn) btn.innerHTML = `<i data-lucide="clock" class="w-4 h-4"></i><span>Programma su TikTok</span>`;
         
-        // Default datetime to tomorrow at 12:00 if empty or in the past
+        // Setup datetime boundaries (TikTok requires 20min to 9 days)
         const dtInput = document.getElementById('modal-publish-datetime');
         if (dtInput) {
+            const pad = n => String(n).padStart(2, '0');
+            const toLocalIso = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            const minDate = new Date(Date.now() + 20 * 60 * 1000);
+            const maxDate = new Date(Date.now() + 9 * 24 * 60 * 60 * 1000);
+            dtInput.min = toLocalIso(minDate);
+            dtInput.max = toLocalIso(maxDate);
+
             const curVal = dtInput.value ? new Date(dtInput.value) : null;
-            if (!curVal || isNaN(curVal.getTime()) || curVal <= new Date()) {
+            if (!curVal || isNaN(curVal.getTime()) || curVal < minDate || curVal > maxDate) {
                 const tmrw = new Date();
                 tmrw.setDate(tmrw.getDate() + 1);
                 tmrw.setHours(12, 0, 0, 0);
-                const pad = n => String(n).padStart(2, '0');
-                dtInput.value = `${tmrw.getFullYear()}-${pad(tmrw.getMonth()+1)}-${pad(tmrw.getDate())}T${pad(tmrw.getHours())}:${pad(tmrw.getMinutes())}`;
+                dtInput.value = toLocalIso(tmrw);
             }
         }
     } else {
@@ -474,11 +480,22 @@ async function submitPublishReel() {
             showToast('La data di programmazione deve essere nel futuro', 'error');
             return;
         }
+        const nowMs = Date.now();
+        const minDate = new Date(nowMs + 18 * 60 * 1000);
+        const maxDate = new Date(nowMs + 9 * 24 * 60 * 60 * 1000);
+        if (pickedDate < minDate) {
+            showToast('TikTok richiede una programmazione con almeno 20 minuti di anticipo da adesso', 'error');
+            return;
+        }
+        if (pickedDate > maxDate) {
+            showToast('TikTok consente la programmazione fino a un massimo di 9 giorni in anticipo', 'error');
+            return;
+        }
         scheduledForIso = pickedDate.toISOString();
     }
 
     btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>${isSchedule ? 'Programmazione in corso...' : 'Invio a TikTok...'}</span>`;
+    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>${isSchedule ? 'Programmazione in corso...' : 'Elaborazione e invio a TikTok...'}</span>`;
     lucide.createIcons();
 
     try {

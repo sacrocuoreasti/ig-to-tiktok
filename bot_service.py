@@ -124,8 +124,7 @@ class BotService:
                             # Auto-publish if enabled
                             if auto_publish:
                                 log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
-                                with browser_lock:
-                                    pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                                pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
                                 if pub_res.get("success"):
                                     pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
                                     update_reel_status(
@@ -160,8 +159,7 @@ class BotService:
 
                             if auto_publish:
                                 log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
-                                with browser_lock:
-                                    pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                                pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
                                 if pub_res.get("success"):
                                     pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
                                     update_reel_status(
@@ -260,8 +258,7 @@ class BotService:
         action_msg = f"Programmazione del Reel {reel_id} per {scheduled_for}" if scheduled_for else f"Pubblicazione del Reel {reel_id} su TikTok..."
         log_event("INFO", action_msg, reel_id=reel_id)
 
-        with browser_lock:
-            pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level, scheduled_for=scheduled_for)
+        pub_res = tt.publish_video(video_path, caption=caption_to_use, privacy_level=privacy_level, scheduled_for=scheduled_for)
 
         if pub_res.get("success"):
             res_status = pub_res.get("status")
