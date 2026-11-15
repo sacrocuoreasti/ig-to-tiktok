@@ -152,6 +152,36 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     pass
 
             page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+
+            # Unmute Instagram video player (React DASH audio stream is only fetched when unmuted)
+            def try_unmute():
+                return page.evaluate("""() => {
+                    const sel = [
+                        'svg[aria-label="Audio is muted"]',
+                        'svg[aria-label*="muted" i]',
+                        'svg[aria-label*="audio" i]',
+                        'svg[aria-label*="disattiva" i]',
+                        'svg[aria-label*="muto" i]',
+                        'button[aria-label*="audio" i]',
+                        'button[aria-label*="mute" i]',
+                        'div[aria-label*="audio" i]'
+                    ];
+                    for (const s of sel) {
+                        const el = document.querySelector(s);
+                        if (el) {
+                            const btn = el.closest("button") || el.closest("div[role='button']") || el;
+                            btn.click();
+                            return "Clicked: " + s;
+                        }
+                    }
+                    return null;
+                }""")
+
+            unmute_res = try_unmute()
+            if unmute_res:
+                log_event("INFO", f"Attivazione audio player Instagram: {unmute_res}", reel_id=reel_id)
+
             try:
                 page.mouse.click(640, 400)
             except Exception:
@@ -167,10 +197,16 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 });
             }""")
 
-            # Wait briefly for streams to arrive using Playwright event loop pump
-            for _ in range(12):
+            # Wait for streams to arrive, re-trying unmute if audio not detected yet
+            for i in range(16):
                 if video_streams and audio_streams:
                     break
+                if not audio_streams and i in (3, 6, 9):
+                    try_unmute()
+                    try:
+                        page.mouse.click(640, 400)
+                    except Exception:
+                        pass
                 page.wait_for_timeout(500)
 
             # Fallback: check og:video meta or video element src if streams were not captured via network
@@ -246,10 +282,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 "-preset", "ultrafast",
                 "-crf", "24",
                 "-c:a", "aac",
+                "-shortest",
                 str(dest_path)
             ]
         else:
-            # Video only
+            log_event("WARNING", f"Attenzione: nessun flusso audio rilevato per Reel {reel_id}. Composizione solo video.", reel_id=reel_id)
             cmd = [
                 "ffmpeg", "-y",
                 "-i", str(tmp_v),

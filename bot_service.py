@@ -2,6 +2,7 @@ import os
 import time
 import gc
 import threading
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from instagram_client import InstagramClient
@@ -211,21 +212,40 @@ class BotService:
         if not reel:
             return {"success": False, "error": "Reel non trovato nel database"}
 
+        def _file_has_audio(fpath):
+            try:
+                out = subprocess.check_output([
+                    "ffprobe", "-v", "error", "-select_streams", "a",
+                    "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                    str(fpath)
+                ], stderr=subprocess.DEVNULL).decode().strip()
+                return "audio" in out
+            except Exception:
+                return True
+
         video_path = reel.get("video_path")
+
+        # Discard existing video file if it is missing audio
+        if video_path and os.path.exists(video_path):
+            if not _file_has_audio(video_path):
+                log_event("WARNING", f"File video {video_path} privo di audio. Ri-estrazione necessaria...", reel_id=reel_id)
+                try: os.remove(video_path)
+                except Exception: pass
+                video_path = None
 
         # If video_path is missing or file does not exist, prepare it
         if not video_path or not os.path.exists(video_path):
             expected_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
-            if expected_path.exists() and expected_path.stat().st_size > 1000:
+            if expected_path.exists() and expected_path.stat().st_size > 1000 and _file_has_audio(expected_path):
                 video_path = str(expected_path)
             elif reel.get("media_url"):
                 ig = InstagramClient()
                 dl = ig.download_video(reel["media_url"], reel_id)
-                if dl.get("success"):
+                if dl.get("success") and _file_has_audio(dl["file_path"]):
                     video_path = dl["file_path"]
                     update_reel_status(reel_id, "downloaded", video_path=video_path)
                 elif reel.get("permalink"):
-                    # Fallback to browser if media_url expired
+                    # Fallback to browser if media_url expired or audio was missing
                     with browser_lock:
                         from instagram_scraper import download_reel_with_browser_fallback
                         dl = download_reel_with_browser_fallback(reel["permalink"], reel_id)
