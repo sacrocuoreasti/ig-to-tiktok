@@ -1,361 +1,217 @@
-import os
-import re
-import time
-import base64
-import urllib.parse
-import subprocess
-import requests
 import gc
+import os
+import subprocess
+import tempfile
 from pathlib import Path
+
+import requests
 from playwright.sync_api import sync_playwright
+
 from config import DOWNLOADS_DIR
-from models import log_event
+from instagram_media import (
+    empty_streams, merge_streams, network_stream, shortcode_from_url,
+    streams_from_html, streams_from_payload,
+)
 from media_validation import validate_video_audio
+from models import log_event
 
-def download_reel_with_browser_fallback(permalink, reel_id):
-    """
-    Downloads an Instagram Reel when Meta API omits media_url due to copyrighted audio.
-    Intercepts DASH video & audio streams from Instagram CDN and merges them via ffmpeg.
-    Designed with strict memory controls for environments with 512MB RAM (Render).
-    """
-    if not permalink:
-        return {"success": False, "error": "Permalink Instagram mancante"}
+USER_AGENT = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+HEADERS = {'User-Agent': USER_AGENT, 'Referer': 'https://www.instagram.com/',
+           'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'}
 
-    log_event("INFO", f"Avvio estrazione flussi video/audio per Reel {reel_id} ({permalink})...", reel_id=reel_id)
 
-    video_streams = []
-    audio_streams = []
+def _capture_browser_streams(permalink, reel_id):
+    metadata = empty_streams()
+    observed = empty_streams()
 
-    def on_response(res):
-        u = res.url
-        ct = res.headers.get("content-type", "")
-        # Look for Facebook/Instagram CDN media streams (fbcdn.net, cdninstagram.com, instagram.com)
-        if any(d in u for d in ["fbcdn.net", "cdninstagram.com", "instagram.com"]) and (
-            "video" in ct or "audio" in ct or ".mp4" in u or "efg=" in u or "bytestart=" in u or ".m4a" in u
-        ):
-            try:
-                metadata = ""
-                if "efg=" in u:
-                    param = urllib.parse.unquote(u.split("efg=")[1].split("&")[0])
-                    padded = param + "=" * (-len(param) % 4)
-                    metadata = base64.b64decode(padded).decode("utf-8", errors="ignore")
+    def on_response(response):
+        try:
+            content_type = response.headers.get('content-type', '')
+            if 'json' in content_type and urllib_host_is_instagram(response.url):
+                merge_streams(metadata, streams_from_payload(response.json(), permalink))
+            stream = network_stream(response.url, content_type)
+            if stream:
+                kind, item = stream
+                merge_streams(observed, {kind: [item]})
+        except Exception:
+            # A failed/unrelated response must not abort extraction of the target.
+            pass
 
-                # Detect audio stream
-                if "_audio" in metadata or "heaac" in metadata or "audio/" in ct or ".m4a" in u:
-                    if not any(a["url"] == u for a in audio_streams):
-                        audio_streams.append({"url": u, "meta": metadata})
-                # Detect video stream
-                elif "video" in ct or "dash" in metadata or "baseline" in metadata or ".mp4" in u or "vencode_tag" in metadata:
-                    # Estimate quality from bitrate or tag
-                    quality = 360
-                    if "1080" in metadata or "1080p" in metadata:
-                        quality = 1080
-                    elif "720" in metadata or "720p" in metadata:
-                        quality = 720
-                    elif "540" in metadata:
-                        quality = 540
-                    elif "bitrate" in metadata:
-                        bm = re.search(r'"bitrate":(\d+)', metadata)
-                        if bm:
-                            quality = int(bm.group(1))
-
-                    if not any(v["url"] == u for v in video_streams):
-                        video_streams.append({"url": u, "quality": quality, "meta": metadata})
-            except Exception:
-                pass
-
-    gc.collect()
-
-    try:
-        with sync_playwright() as p:
-            # Low-memory Chromium launch flags with automation stealth and autoplay enabled
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--no-zygote",
-                    "--disable-blink-features=AutomationControlled",
-                    "--autoplay-policy=no-user-gesture-required",
-                    "--disable-background-networking",
-                    "--disable-default-apps",
-                    "--disable-extensions",
-                    "--disable-sync"
-                ]
-            )
-
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                locale="it-IT",
-                viewport={"width": 1280, "height": 800},
-                extra_http_headers={
-                    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                    "Sec-Ch-Ua-Mobile": "?0",
-                    "Sec-Ch-Ua-Platform": '"Windows"'
-                }
-            )
-
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+                  '--autoplay-policy=no-user-gesture-required'],
+        )
+        try:
+            context = browser.new_context(user_agent=USER_AGENT, locale='it-IT',
+                                          viewport={'width': 1280, 'height': 800})
             page = context.new_page()
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-
-            # Abort heavy static assets (images, fonts) to save RAM, keeping stylesheet for proper DOM rendering
-            def abort_heavy(route):
-                rt = route.request.resource_type
-                if rt in ["image", "font"]:
-                    route.abort()
-                else:
-                    route.continue_()
-
-            page.route("**/*", abort_heavy)
-            page.on("response", on_response)
-
-            try:
-                page.goto(permalink, timeout=25000, wait_until="domcontentloaded")
-            except Exception as ge:
-                log_event("WARNING", f"Navigazione permalink lenta: {str(ge)}", reel_id=reel_id)
-
-            page.wait_for_timeout(1000)
-            log_event("INFO", f"Pagina Instagram caricata: URL={page.url}, Titolo={page.title()}", reel_id=reel_id)
-
-            # Dismiss any login or cookie dialogs
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
-
-            cookie_selectors = [
-                "button:has-text('Consenti tutti i cookie')",
-                "button:has-text('Consenti tutti')",
-                "button:has-text('Consenti')",
-                "button:has-text('Accetta tutti')",
-                "button:has-text('Accetta')",
-                "button:has-text('Allow all cookies')",
-                "button:has-text('Allow essential and optional cookies')",
-                "button:has-text('Allow all')",
-                "button:has-text('Accept all')",
-                "button:has-text('Accept')",
-                "button:has-text('Alle Cookies erlauben')",
-                "button:has-text('Nur notwendige Cookies erlauben')",
-                "button:has-text('Nur erforderliche Cookies erlauben')",
-                "button:has-text('Non ora')",
-                "button:has-text('Not now')",
-                "div[role='dialog'] button"
-            ]
-            for sel in cookie_selectors:
+            page.route('**/*', lambda route: route.abort()
+                       if route.request.resource_type in ('image', 'font') else route.continue_())
+            page.on('response', on_response)
+            shortcode = shortcode_from_url(permalink)
+            urls = [permalink, f'https://www.instagram.com/p/{shortcode}/embed/']
+            for url in urls:
                 try:
-                    btn = page.locator(sel).first
-                    if btn.count() > 0 and btn.is_visible():
-                        btn.click(timeout=1200)
-                        page.wait_for_timeout(400)
-                        break
+                    page.goto(url, wait_until='domcontentloaded', timeout=25000)
                 except Exception:
-                    pass
-
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
-
-            # Unmute Instagram video player (React DASH audio stream is only fetched when unmuted)
-            def try_unmute():
-                return page.evaluate("""() => {
-                    const sel = [
-                        'svg[aria-label="Audio is muted"]',
-                        'svg[aria-label*="muted" i]',
-                        'svg[aria-label*="attiva audio" i]:not([aria-label*="disattiva" i])',
-                        'svg[aria-label*="muto" i]',
-                        'button[aria-label*="unmute" i]',
-                        'button[aria-label*="attiva audio" i]:not([aria-label*="disattiva" i])'
-                    ];
-                    for (const s of sel) {
-                        const el = document.querySelector(s);
-                        if (el) {
-                            const btn = el.closest("button") || el.closest("div[role='button']") || el;
-                            btn.click();
-                            return "Clicked: " + s;
-                        }
-                    }
-                    document.querySelectorAll('video').forEach(v => {
-                        v.muted = false;
-                        v.volume = 1;
-                        v.play().catch(() => {});
-                    });
-                    return null;
-                }""")
-
-            unmute_res = try_unmute()
-            if unmute_res:
-                log_event("INFO", f"Attivazione audio player Instagram: {unmute_res}", reel_id=reel_id)
-
-            try:
-                page.mouse.click(640, 400)
-            except Exception:
-                pass
-
-            # Unmute and trigger video playback so DASH streaming is requested
-            page.evaluate("""() => {
-                const videos = document.querySelectorAll('video');
-                videos.forEach(v => {
-                    v.muted = false;
-                    v.volume = 1.0;
-                    v.play().catch(() => {});
-                });
-            }""")
-
-            # Wait for streams to arrive, re-trying unmute if audio not detected yet
-            for i in range(16):
-                if video_streams and audio_streams:
+                    log_event('WARNING', 'Caricamento pagina Instagram lento; analizzo i metadati disponibili.', reel_id=reel_id)
+                page.wait_for_timeout(1200)
+                merge_streams(metadata, streams_from_html(page.content(), permalink))
+                if metadata['video'] and metadata['audio']:
                     break
-                if not audio_streams and i in (3, 6, 9):
-                    try_unmute()
+                for label in ('Consenti tutti i cookie', 'Consenti tutti', 'Allow all cookies',
+                              'Allow all', 'Rifiuta cookie facoltativi', 'Decline optional cookies'):
                     try:
-                        page.mouse.click(640, 400)
+                        button = page.get_by_role('button', name=label, exact=True).first
+                        if button.count() and button.is_visible():
+                            button.click(timeout=1200)
+                            break
                     except Exception:
                         pass
-                page.wait_for_timeout(500)
-
-            # Fallback: check og:video meta or video element src if streams were not captured via network
-            if not video_streams:
-                try:
-                    direct_src = page.evaluate("""() => {
-                        const meta = document.querySelector('meta[property="og:video"]');
-                        if (meta && meta.content) return meta.content;
-                        const v = document.querySelector('video');
-                        if (v && v.src && v.src.startsWith('http')) return v.src;
-                        return null;
-                    }""")
-                    if direct_src and ("fbcdn.net" in direct_src or ".mp4" in direct_src):
-                        log_event("INFO", f"Trovato URL video diretto nel DOM/meta: {direct_src[:60]}...", reel_id=reel_id)
-                        video_streams.append({"url": direct_src, "quality": 720})
-                except Exception:
-                    pass
-
-            log_event("INFO", f"Risultato cattura stream: {len(video_streams)} video, {len(audio_streams)} audio", reel_id=reel_id)
-
+                page.keyboard.press('Escape')
+                # Audio comes from the manifest even if the player never requests it.
+                for attempt in range(10):
+                    page.evaluate('''() => {
+                        document.querySelectorAll('video').forEach(v => {
+                            v.muted = false; v.volume = 1; v.play().catch(() => {});
+                        });
+                    }''')
+                    page.wait_for_timeout(500)
+                    if attempt in (0, 3, 9):
+                        merge_streams(metadata, streams_from_html(page.content(), permalink))
+                    if metadata['video'] and metadata['audio']:
+                        break
+                    if observed['video'] and observed['audio']:
+                        break
+                if metadata['video'] and metadata['audio']:
+                    break
+                if observed['video'] and observed['audio']:
+                    break
+            log_event('INFO',
+                      f'Metadati del Reel: {len(metadata["video"])} video, '
+                      f'{len(metadata["audio"])} audio, {len(metadata["progressive"])} MP4 completi; '
+                      f'player: {len(observed["video"])} video, {len(observed["audio"])} audio.',
+                      reel_id=reel_id)
+        finally:
             browser.close()
+    # Prefer the manifest of this exact Reel over anonymous requests by the player.
+    if metadata['video'] and metadata['audio']:
+        return metadata
+    # Only pair player streams whose asset IDs agree; never mix suggested Reels.
+    for video in observed['video']:
+        matching = [audio for audio in observed['audio']
+                    if video.get('asset_id') is not None and audio.get('asset_id') == video['asset_id']]
+        if matching:
+            return {'video': [video], 'audio': matching, 'progressive': metadata['progressive']}
+    return metadata
 
-    except Exception as e:
-        log_event("ERROR", f"Errore browser Chromium durante fallback per {reel_id}: {str(e)}", reel_id=reel_id)
-        gc.collect()
-        return {"success": False, "error": f"Errore browser: {str(e)}"}
 
-    gc.collect()
+def urllib_host_is_instagram(url):
+    from urllib.parse import urlsplit
+    host = urlsplit(url).hostname or ''
+    return host == 'instagram.com' or host.endswith('.instagram.com')
 
-    if not video_streams:
-        return {"success": False, "error": "Nessun flusso video individuato nella pagina Instagram"}
 
-    # For TikTok / mobile reels, 720p is optimal (super fast download and encoding, zero RAM/timeout issues)
-    # Prefer 720p, or 540p; if none <= 720p, fall back to highest available
-    p720_streams = [v for v in video_streams if v.get("quality", 0) <= 720]
-    if p720_streams:
-        p720_streams.sort(key=lambda x: x["quality"], reverse=True)
-        chosen_video = p720_streams[0]["url"]
-    else:
-        video_streams.sort(key=lambda x: x["quality"], reverse=True)
-        chosen_video = video_streams[0]["url"]
+def _preferred_video(streams):
+    # Width, rather than portrait height, determines the 720p choice.
+    limited = [s for s in streams if 0 < s.get('quality', 0) <= 720]
+    return sorted(limited or streams, key=lambda s: s.get('quality', 0), reverse=bool(limited))
 
-    chosen_audio = audio_streams[0]["url"] if audio_streams else None
 
-    # Clean byte ranges to fetch complete media files
-    def full_stream_url(url):
-        parts = urllib.parse.urlsplit(url)
-        query = "&".join(part for part in parts.query.split("&")
-                         if urllib.parse.unquote(part.split("=", 1)[0]).lower()
-                         not in {"bytestart", "byteend"})
-        return urllib.parse.urlunsplit(parts._replace(query=query))
-
-    clean_v_url = full_stream_url(chosen_video)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-    tmp_v = DOWNLOADS_DIR / f"tmp_v_{reel_id}.mp4"
-    tmp_a = DOWNLOADS_DIR / f"tmp_a_{reel_id}.m4a"
-    dest_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
-
-    try:
-        # Download video stream
-        log_event("INFO", f"Download flusso video per Reel {reel_id}...", reel_id=reel_id)
-        rv = requests.get(clean_v_url, headers=headers, stream=True, timeout=40)
-        rv.raise_for_status()
-        with open(tmp_v, "wb") as f:
-            for chunk in rv.iter_content(chunk_size=65536):
+def _download_file(session, url, destination):
+    with session.get(url, stream=True, timeout=(10, 40)) as response:
+        response.raise_for_status()
+        # A range response can be a partial file, even after removing URL ranges.
+        if response.status_code != 200:
+            raise ValueError('Instagram ha restituito un flusso parziale')
+        with destination.open('wb') as output:
+            for chunk in response.iter_content(65536):
                 if chunk:
-                    f.write(chunk)
+                    output.write(chunk)
 
-        if chosen_audio:
-            clean_a_url = full_stream_url(chosen_audio)
-            log_event("INFO", f"Download traccia audio AAC per Reel {reel_id}...", reel_id=reel_id)
-            ra = requests.get(clean_a_url, headers=headers, stream=True, timeout=30)
-            ra.raise_for_status()
-            with open(tmp_a, "wb") as f:
-                for chunk in ra.iter_content(chunk_size=65536):
-                    if chunk:
-                        f.write(chunk)
 
-            # Merge with ffmpeg - using single-thread ultrafast to stay within 512MB RAM
-            log_event("INFO", f"Composizione video e audio via ffmpeg (H.264/AAC)...", reel_id=reel_id)
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", str(tmp_v),
-                "-i", str(tmp_a),
-                "-map", "0:v:0", "-map", "1:a:0",
-                "-threads", "1",
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-preset", "ultrafast",
-                "-crf", "24",
-                "-c:a", "aac", "-ar", "44100", "-ac", "2",
-                "-movflags", "+faststart",
-                "-shortest",
-                str(dest_path)
-            ]
-        else:
-            # A progressive MP4 may already contain audio; a video-only DASH
-            # stream must fail rather than becoming a publishable silent file.
-            validation = validate_video_audio(tmp_v)
-            if not validation["success"]:
-                raise ValueError("Nessun audio recuperabile da Instagram. Carica l'MP4 originale con audio.")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", str(tmp_v),
-                "-map", "0:v:0", "-map", "0:a:0",
-                "-c:a", "aac", "-ar", "44100", "-ac", "2",
-                "-movflags", "+faststart",
-                "-threads", "1",
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-preset", "ultrafast",
-                "-crf", "24",
-                str(dest_path)
-            ]
+def _mux_audio(video, audio, output):
+    probe = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+         'stream=codec_name,width,pix_fmt', '-of', 'json', str(video)],
+        capture_output=True, text=True, check=True, timeout=20)
+    import json
+    stream = json.loads(probe.stdout)['streams'][0]
+    command = ['ffmpeg', '-y', '-nostdin', '-v', 'error', '-i', str(video)]
+    if audio:
+        command += ['-i', str(audio)]
+    command += ['-map', '0:v:0', '-map', '1:a:0' if audio else '0:a:0']
+    if stream.get('codec_name') == 'h264' and stream.get('width', 9999) <= 720 and stream.get('pix_fmt') == 'yuv420p':
+        command += ['-c:v', 'copy']
+    else:
+        command += ['-threads', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    '-vf', "scale=w='min(720,iw)':h=-2", '-preset', 'veryfast', '-crf', '24']
+    command += ['-c:a', 'aac', '-ar', '44100', '-ac', '2', '-movflags', '+faststart', '-shortest', str(output)]
+    subprocess.run(command, capture_output=True, check=True, timeout=120)
 
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-        validation = validate_video_audio(dest_path)
-        if not validation["success"]:
-            dest_path.unlink(missing_ok=True)
-            raise ValueError(validation["error"])
 
-        # Cleanup temporary files
-        if tmp_v.exists():
-            tmp_v.unlink()
-        if tmp_a.exists():
-            tmp_a.unlink()
+def _download_streams(streams, reel_id):
+    destination = DOWNLOADS_DIR / f'{reel_id}.mp4'
+    options = []
+    if streams['video'] and streams['audio']:
+        # Try alternate audio representations when a CDN rendition has expired.
+        for audio in sorted(streams['audio'], key=lambda s: s.get('bandwidth', 0), reverse=True)[:3]:
+            options.append((_preferred_video(streams['video'])[0]['url'], audio['url']))
+    options.extend((video['url'], None) for video in _preferred_video(streams['progressive'])[:3])
+    if not options:
+        return {'success': False, 'error': 'Metadati audio del Reel non ancora disponibili da Instagram'}
+    with requests.Session() as session, tempfile.TemporaryDirectory(prefix='reel-', dir=str(DOWNLOADS_DIR)) as tmp:
+        session.headers.update(HEADERS)
+        tmp = Path(tmp)
+        for video_url, audio_url in options:
+            try:
+                video = tmp / 'video.mp4'
+                audio = tmp / 'audio.m4a' if audio_url else None
+                output = tmp / 'complete.mp4'
+                _download_file(session, video_url, video)
+                if audio:
+                    _download_file(session, audio_url, audio)
+                elif not validate_video_audio(video)['success']:
+                    continue
+                _mux_audio(video, audio, output)
+                check = validate_video_audio(output)
+                if not check['success']:
+                    continue
+                os.replace(output, destination)
+                log_event('SUCCESS', f'Reel {reel_id}: audio recuperato automaticamente '
+                          f'({check["audio_codec"]}, picco {check["peak_db"]} dB), MP4 pronto.', reel_id=reel_id)
+                return {'success': True, 'file_path': str(destination),
+                        'file_size': destination.stat().st_size, 'audio_verified': True}
+            except (requests.RequestException, subprocess.SubprocessError, OSError, ValueError, KeyError, IndexError):
+                log_event('WARNING', 'Rappresentazione Instagram non disponibile; provo il flusso alternativo.', reel_id=reel_id)
+    return {'success': False, 'error': 'Recupero audio Instagram temporaneamente non riuscito; il bot riproverà automaticamente'}
 
-        if dest_path.exists() and dest_path.stat().st_size > 1000:
-            file_size = dest_path.stat().st_size
-            log_event("SUCCESS", f"Reel {reel_id} pronto ({file_size // 1024} KB)!", reel_id=reel_id)
-            return {
-                "success": True,
-                "file_path": str(dest_path),
-                "file_size": file_size
-            }
-        else:
-            return {"success": False, "error": "Creazione del file video finale non riuscita"}
 
-    except Exception as e:
-        if tmp_v.exists():
-            tmp_v.unlink()
-        if tmp_a.exists():
-            tmp_a.unlink()
-        log_event("ERROR", f"Errore unione flussi per {reel_id}: {str(e)}", reel_id=reel_id)
-        return {"success": False, "error": str(e)}
+def download_reel_with_browser_fallback(permalink, reel_id):
+    """Resolve audio from target-specific page manifests, then merge automatically."""
+    if not shortcode_from_url(permalink):
+        return {'success': False, 'error': 'Permalink Instagram non valido'}
+    log_event('INFO', f'Recupero automatico video e audio del Reel {reel_id} dai metadati Instagram...', reel_id=reel_id)
+    try:
+        # Lightweight path first; no Chromium or audio playback is needed.
+        try:
+            response = requests.get(permalink, headers=HEADERS, timeout=(10, 15))
+            response.raise_for_status()
+            metadata = streams_from_html(response.text, permalink)
+            if (metadata['video'] and metadata['audio']) or metadata['progressive']:
+                result = _download_streams(metadata, reel_id)
+                if result['success']:
+                    return result
+        except requests.RequestException:
+            pass
+        # Instagram may render the metadata only after JavaScript / cookie consent.
+        metadata = _capture_browser_streams(permalink, reel_id)
+        return _download_streams(metadata, reel_id)
+    except Exception as error:
+        log_event('WARNING', f'Estrazione Instagram da riprovare ({type(error).__name__}).', reel_id=reel_id)
+        return {'success': False, 'error': 'Instagram non ha completato la risposta audio; nuovo tentativo automatico al prossimo controllo'}
     finally:
         gc.collect()

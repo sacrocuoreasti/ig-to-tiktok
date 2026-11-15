@@ -187,14 +187,23 @@ def api_download_reel(reel_id):
     if reel.get("media_url"):
         ig = InstagramClient()
         res = ig.download_video(reel["media_url"], reel_id)
+        from media_validation import validate_video_audio
+        if res.get("success") and not validate_video_audio(res.get("file_path"))["success"]:
+            res = {"success": False}
     else:
+        res = {"success": False}
+
+    if not res.get("success"):
         with browser_lock:
             from instagram_scraper import download_reel_with_browser_fallback
             res = download_reel_with_browser_fallback(reel.get("permalink"), reel_id)
 
     if res.get("success"):
         from models import update_reel_status
-        update_reel_status(reel_id, "downloaded", video_path=res.get("file_path"))
+        status = reel.get("status", "")
+        if not status.startswith("published") and status not in ("scheduled", "skipped"):
+            status = "downloaded"
+        update_reel_status(reel_id, status, video_path=res.get("file_path"), error="")
     return jsonify(res)
 
 @app.route("/api/reels/<reel_id>/publish", methods=["POST"])

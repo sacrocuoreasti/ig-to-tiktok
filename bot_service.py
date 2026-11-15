@@ -112,7 +112,9 @@ class BotService:
                 reel_id = r["id"]
 
                 # If the reel is new or pending
-                if is_new or current_status == "new":
+                retry_audio = (current_status == "audio_restricted" and
+                               not (get_reel(reel_id) or {}).get("tiktok_publish_id"))
+                if is_new or current_status == "new" or retry_audio:
                     new_count += 1
                     media_url = r.get("media_url")
 
@@ -133,7 +135,7 @@ class BotService:
                                 if dl_res.get("success"):
                                     video_path = dl_res.get("file_path")
                                 else:
-                                    update_reel_status(reel_id, "error", error=dl_res.get("error"))
+                                    update_reel_status(reel_id, "audio_restricted", error=dl_res.get("error"))
                                     video_path = None
 
                             if video_path:

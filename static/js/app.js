@@ -303,6 +303,9 @@ function createReelCardHtml(reel) {
 
                 <!-- Actions -->
                 <div class="pt-2 border-t border-slate-800/80 flex flex-col gap-2">
+                    <button onclick="prepareReelAudio('${reel.id}', this)" class="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                        Recupera video con audio
+                    </button>
                     ${reel.tiktok_url ? `
                         <a href="${reel.tiktok_url}" target="_blank" class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-400 to-pink-500 hover:opacity-95 text-slate-950 shadow-md shadow-pink-500/20 transition">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -1025,3 +1028,23 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+
+
+async function prepareReelAudio(reelId, button) {
+    button.disabled = true;
+    button.innerText = 'Recupero video e audio…';
+    try {
+        const response = await fetch(`/api/reels/${reelId}/download`, { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Recupero non riuscito');
+        showToast('Video e audio recuperati. Anteprima pronta.', 'success');
+        openVideoModal(reelId);
+        await loadReels();
+        await fetchStatus();
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.innerText = 'Recupera video con audio';
+    }
+}
