@@ -4,6 +4,7 @@ import requests
 import json
 from pathlib import Path
 from models import get_setting, log_event
+from media_validation import validate_video_audio
 from zernio_client import ZernioClient
 
 class TikTokClient:
@@ -158,6 +159,13 @@ class TikTokClient:
                 "mode": "test_mode",
                 "caption": formatted_caption
             }
+
+        # Every real publishing mode must pass the same audio check.
+        validation = validate_video_audio(video_path)
+        if not validation["success"]:
+            log_event("ERROR", validation["error"])
+            return validation
+        log_event("INFO", f"Audio verificato prima dell'invio TikTok: {validation['audio_codec']}, picco {validation['peak_db']} dB")
 
         # 2. ZERNIO UNIFIED API (Recommended: official, fast, zero RAM on host)
         if self.mode == "zernio":

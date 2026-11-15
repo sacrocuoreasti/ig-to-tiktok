@@ -1,5 +1,7 @@
 import os
 import requests
+import time
+from media_validation import validate_video_audio
 from models import get_setting, set_setting, log_event
 
 class ZernioClient:
@@ -73,6 +75,11 @@ class ZernioClient:
 
         if not os.path.exists(file_path):
             return {"success": False, "error": f"File non trovato: {file_path}"}
+
+        validation = validate_video_audio(file_path)
+        if not validation["success"]:
+            log_event("ERROR", validation["error"])
+            return validation
 
         filename = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)

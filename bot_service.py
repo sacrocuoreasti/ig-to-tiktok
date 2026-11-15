@@ -2,7 +2,6 @@ import os
 import time
 import gc
 import threading
-import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from instagram_client import InstagramClient
@@ -12,23 +11,14 @@ from models import (
     update_reel_status, get_reel, log_event
 )
 from config import DOWNLOADS_DIR
+from media_validation import validate_video_audio
 
 # Global lock to ensure at most one Playwright browser runs at a time (essential for 512MB RAM)
 browser_lock = threading.Lock()
 
 def file_has_audio(fpath):
-    """Check if the given video file contains an audio stream via ffprobe."""
-    if not fpath or not os.path.exists(fpath):
-        return False
-    try:
-        out = subprocess.check_output([
-            "ffprobe", "-v", "error", "-select_streams", "a",
-            "-show_entries", "stream=codec_type", "-of", "csv=p=0",
-            str(fpath)
-        ], stderr=subprocess.DEVNULL).decode().strip()
-        return "audio" in out
-    except Exception:
-        return True
+    """Only accept files whose audio stream was successfully verified."""
+    return validate_video_audio(fpath, check_signal=False)["success"]
 
 class BotService:
     def __init__(self):

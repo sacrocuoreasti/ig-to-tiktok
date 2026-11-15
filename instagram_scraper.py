@@ -10,6 +10,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 from config import DOWNLOADS_DIR
 from models import log_event
+from media_validation import validate_video_audio
 
 def download_reel_with_browser_fallback(permalink, reel_id):
     """
@@ -160,12 +161,10 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     const sel = [
                         'svg[aria-label="Audio is muted"]',
                         'svg[aria-label*="muted" i]',
-                        'svg[aria-label*="audio" i]',
-                        'svg[aria-label*="disattiva" i]',
+                        'svg[aria-label*="attiva audio" i]:not([aria-label*="disattiva" i])',
                         'svg[aria-label*="muto" i]',
-                        'button[aria-label*="audio" i]',
-                        'button[aria-label*="mute" i]',
-                        'div[aria-label*="audio" i]'
+                        'button[aria-label*="unmute" i]',
+                        'button[aria-label*="attiva audio" i]:not([aria-label*="disattiva" i])'
                     ];
                     for (const s of sel) {
                         const el = document.querySelector(s);
@@ -175,6 +174,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                             return "Clicked: " + s;
                         }
                     }
+                    document.querySelectorAll('video').forEach(v => {
+                        v.muted = false;
+                        v.volume = 1;
+                        v.play().catch(() => {});
+                    });
                     return null;
                 }""")
 
@@ -252,7 +256,14 @@ def download_reel_with_browser_fallback(permalink, reel_id):
     chosen_audio = audio_streams[0]["url"] if audio_streams else None
 
     # Clean byte ranges to fetch complete media files
-    clean_v_url = re.sub(r"&bytestart=\d+&byteend=\d+", "", chosen_video)
+    def full_stream_url(url):
+        parts = urllib.parse.urlsplit(url)
+        query = "&".join(part for part in parts.query.split("&")
+                         if urllib.parse.unquote(part.split("=", 1)[0]).lower()
+                         not in {"bytestart", "byteend"})
+        return urllib.parse.urlunsplit(parts._replace(query=query))
+
+    clean_v_url = full_stream_url(chosen_video)
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     tmp_v = DOWNLOADS_DIR / f"tmp_v_{reel_id}.mp4"
@@ -263,15 +274,17 @@ def download_reel_with_browser_fallback(permalink, reel_id):
         # Download video stream
         log_event("INFO", f"Download flusso video per Reel {reel_id}...", reel_id=reel_id)
         rv = requests.get(clean_v_url, headers=headers, stream=True, timeout=40)
+        rv.raise_for_status()
         with open(tmp_v, "wb") as f:
             for chunk in rv.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
 
         if chosen_audio:
-            clean_a_url = re.sub(r"&bytestart=\d+&byteend=\d+", "", chosen_audio)
+            clean_a_url = full_stream_url(chosen_audio)
             log_event("INFO", f"Download traccia audio AAC per Reel {reel_id}...", reel_id=reel_id)
             ra = requests.get(clean_a_url, headers=headers, stream=True, timeout=30)
+            ra.raise_for_status()
             with open(tmp_a, "wb") as f:
                 for chunk in ra.iter_content(chunk_size=65536):
                     if chunk:
@@ -283,20 +296,29 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 "ffmpeg", "-y",
                 "-i", str(tmp_v),
                 "-i", str(tmp_a),
+                "-map", "0:v:0", "-map", "1:a:0",
                 "-threads", "1",
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
                 "-preset", "ultrafast",
                 "-crf", "24",
-                "-c:a", "aac",
+                "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                "-movflags", "+faststart",
                 "-shortest",
                 str(dest_path)
             ]
         else:
-            log_event("WARNING", f"Attenzione: nessun flusso audio rilevato per Reel {reel_id}. Composizione solo video.", reel_id=reel_id)
+            # A progressive MP4 may already contain audio; a video-only DASH
+            # stream must fail rather than becoming a publishable silent file.
+            validation = validate_video_audio(tmp_v)
+            if not validation["success"]:
+                raise ValueError("Nessun audio recuperabile da Instagram. Carica l'MP4 originale con audio.")
             cmd = [
                 "ffmpeg", "-y",
                 "-i", str(tmp_v),
+                "-map", "0:v:0", "-map", "0:a:0",
+                "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                "-movflags", "+faststart",
                 "-threads", "1",
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
@@ -305,7 +327,11 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                 str(dest_path)
             ]
 
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        validation = validate_video_audio(dest_path)
+        if not validation["success"]:
+            dest_path.unlink(missing_ok=True)
+            raise ValueError(validation["error"])
 
         # Cleanup temporary files
         if tmp_v.exists():
