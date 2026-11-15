@@ -239,9 +239,16 @@ def download_reel_with_browser_fallback(permalink, reel_id):
     if not video_streams:
         return {"success": False, "error": "Nessun flusso video individuato nella pagina Instagram"}
 
-    # Sort video streams by quality descending
-    video_streams.sort(key=lambda x: x["quality"], reverse=True)
-    chosen_video = video_streams[0]["url"]
+    # For TikTok / mobile reels, 720p is optimal (super fast download and encoding, zero RAM/timeout issues)
+    # Prefer 720p, or 540p; if none <= 720p, fall back to highest available
+    p720_streams = [v for v in video_streams if v.get("quality", 0) <= 720]
+    if p720_streams:
+        p720_streams.sort(key=lambda x: x["quality"], reverse=True)
+        chosen_video = p720_streams[0]["url"]
+    else:
+        video_streams.sort(key=lambda x: x["quality"], reverse=True)
+        chosen_video = video_streams[0]["url"]
+
     chosen_audio = audio_streams[0]["url"] if audio_streams else None
 
     # Clean byte ranges to fetch complete media files

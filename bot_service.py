@@ -16,6 +16,20 @@ from config import DOWNLOADS_DIR
 # Global lock to ensure at most one Playwright browser runs at a time (essential for 512MB RAM)
 browser_lock = threading.Lock()
 
+def file_has_audio(fpath):
+    """Check if the given video file contains an audio stream via ffprobe."""
+    if not fpath or not os.path.exists(fpath):
+        return False
+    try:
+        out = subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+            str(fpath)
+        ], stderr=subprocess.DEVNULL).decode().strip()
+        return "audio" in out
+    except Exception:
+        return True
+
 class BotService:
     def __init__(self):
         self.running = False
@@ -118,31 +132,46 @@ class BotService:
                         dl_res = ig.download_video(media_url, reel_id)
                         if dl_res.get("success"):
                             video_path = dl_res.get("file_path")
-                            update_reel_status(reel_id, "downloaded", video_path=video_path)
-                            downloaded_count += 1
-                            log_event("SUCCESS", f"Reel {reel_id} scaricato e pronto ({dl_res.get('file_size') // 1024} KB)", reel_id=reel_id)
-
-                            # Auto-publish if enabled
-                            if auto_publish:
-                                log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
-                                pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
-                                if pub_res.get("success"):
-                                    pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
-                                    update_reel_status(
-                                        reel_id,
-                                        pub_status,
-                                        tiktok_id=pub_res.get("publish_id"),
-                                        tiktok_status=pub_res.get("status"),
-                                        tiktok_url=pub_res.get("tiktok_url")
-                                    )
-                                    published_count += 1
-                                    log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
-
-                                    if get_setting("auto_delete_video", "true") == "true":
-                                        self._cleanup_single_file(video_path, reel_id)
+                            # Verify audio is present; if not, fall back to browser extraction
+                            if not file_has_audio(video_path):
+                                log_event("WARNING", f"Reel {reel_id}: video Meta API senza audio. Fallback browser...", reel_id=reel_id)
+                                try: os.remove(video_path)
+                                except Exception: pass
+                                with browser_lock:
+                                    from instagram_scraper import download_reel_with_browser_fallback
+                                    dl_res = download_reel_with_browser_fallback(r.get("permalink"), reel_id)
+                                if dl_res.get("success"):
+                                    video_path = dl_res.get("file_path")
                                 else:
-                                    update_reel_status(reel_id, "error", error=pub_res.get("error"))
-                                    log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+                                    update_reel_status(reel_id, "error", error=dl_res.get("error"))
+                                    video_path = None
+
+                            if video_path:
+                                update_reel_status(reel_id, "downloaded", video_path=video_path)
+                                downloaded_count += 1
+                                log_event("SUCCESS", f"Reel {reel_id} scaricato e pronto", reel_id=reel_id)
+
+                                # Auto-publish if enabled
+                                if auto_publish:
+                                    log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
+                                    pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                                    if pub_res.get("success"):
+                                        pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
+                                        update_reel_status(
+                                            reel_id,
+                                            pub_status,
+                                            tiktok_id=pub_res.get("publish_id"),
+                                            tiktok_status=pub_res.get("status"),
+                                            tiktok_url=pub_res.get("tiktok_url")
+                                        )
+                                        published_count += 1
+                                        log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+
+                                        if get_setting("auto_delete_video", "true") == "true":
+                                            self._cleanup_single_file(video_path, reel_id)
+                                    else:
+                                        update_reel_status(reel_id, "error", error=pub_res.get("error"))
+                                        log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
                         else:
                             update_reel_status(reel_id, "error", error=dl_res.get("error"))
                     else:
@@ -212,22 +241,11 @@ class BotService:
         if not reel:
             return {"success": False, "error": "Reel non trovato nel database"}
 
-        def _file_has_audio(fpath):
-            try:
-                out = subprocess.check_output([
-                    "ffprobe", "-v", "error", "-select_streams", "a",
-                    "-show_entries", "stream=codec_type", "-of", "csv=p=0",
-                    str(fpath)
-                ], stderr=subprocess.DEVNULL).decode().strip()
-                return "audio" in out
-            except Exception:
-                return True
-
         video_path = reel.get("video_path")
 
         # Discard existing video file if it is missing audio
         if video_path and os.path.exists(video_path):
-            if not _file_has_audio(video_path):
+            if not file_has_audio(video_path):
                 log_event("WARNING", f"File video {video_path} privo di audio. Ri-estrazione necessaria...", reel_id=reel_id)
                 try: os.remove(video_path)
                 except Exception: pass
@@ -236,12 +254,12 @@ class BotService:
         # If video_path is missing or file does not exist, prepare it
         if not video_path or not os.path.exists(video_path):
             expected_path = DOWNLOADS_DIR / f"{reel_id}.mp4"
-            if expected_path.exists() and expected_path.stat().st_size > 1000 and _file_has_audio(expected_path):
+            if expected_path.exists() and expected_path.stat().st_size > 1000 and file_has_audio(expected_path):
                 video_path = str(expected_path)
             elif reel.get("media_url"):
                 ig = InstagramClient()
                 dl = ig.download_video(reel["media_url"], reel_id)
-                if dl.get("success") and _file_has_audio(dl["file_path"]):
+                if dl.get("success") and file_has_audio(dl["file_path"]):
                     video_path = dl["file_path"]
                     update_reel_status(reel_id, "downloaded", video_path=video_path)
                 elif reel.get("permalink"):
