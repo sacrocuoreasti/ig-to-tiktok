@@ -77,11 +77,19 @@ function switchTab(tabName) {
 async function fetchStatus() {
     try {
         const res = await fetch('/api/status');
+        if (res.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
         const data = await res.json();
 
         botStatus = data.bot;
         const stats = data.stats;
         const ig = data.instagram;
+
+        if (data.admin_username && document.getElementById('setting-admin-username') && !document.getElementById('setting-admin-username').value) {
+            document.getElementById('setting-admin-username').value = data.admin_username;
+        }
 
         // Header Bot Status
         const pulse = document.getElementById('header-bot-pulse');
@@ -710,6 +718,10 @@ async function loadSettings() {
             document.getElementById('setting-caption-suffix').value = s.caption_suffix || '';
             document.getElementById('setting-include-original-caption').checked = s.include_original_caption !== 'false';
 
+            if (botStatus && botStatus.admin_username && document.getElementById('setting-admin-username')) {
+                document.getElementById('setting-admin-username').value = botStatus.admin_username;
+            }
+
             toggleTikTokFields();
         }
     } catch (err) {
@@ -756,6 +768,63 @@ async function saveAllSettings() {
         }
     } catch (err) {
         showToast('Errore di connessione', 'error');
+    }
+}
+
+async function updateAdminPassword() {
+    const userElem = document.getElementById('setting-admin-username');
+    const curPwdElem = document.getElementById('setting-admin-cur-password');
+    const newPwdElem = document.getElementById('setting-admin-new-password');
+    const btn = document.getElementById('btn-save-admin-creds');
+
+    const curPwd = curPwdElem ? curPwdElem.value : '';
+    const newUser = userElem ? userElem.value.trim() : '';
+    const newPwd = newPwdElem ? newPwdElem.value.trim() : '';
+
+    if (!curPwd) {
+        showToast('Inserisci la password attuale per confermare la modifica', 'warning');
+        if (curPwdElem) curPwdElem.focus();
+        return;
+    }
+
+    if (newPwd && newPwd.length < 4) {
+        showToast('La nuova password deve contenere almeno 4 caratteri', 'warning');
+        if (newPwdElem) newPwdElem.focus();
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Salvataggio...</span>`;
+        lucide.createIcons();
+    }
+
+    try {
+        const res = await fetch('/api/settings/password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                current_password: curPwd,
+                new_username: newUser,
+                new_password: newPwd
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Credenziali admin aggiornate con successo!', 'success');
+            if (curPwdElem) curPwdElem.value = '';
+            if (newPwdElem) newPwdElem.value = '';
+        } else {
+            showToast(`Errore: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        showToast('Errore di comunicazione durante il salvataggio', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="key-round" class="w-3.5 h-3.5"></i><span>Aggiorna Credenziali Admin</span>`;
+            lucide.createIcons();
+        }
     }
 }
 

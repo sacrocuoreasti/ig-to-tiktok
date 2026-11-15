@@ -28,8 +28,10 @@ def download_reel_with_browser_fallback(permalink, reel_id):
     def on_response(res):
         u = res.url
         ct = res.headers.get("content-type", "")
-        # Look for Facebook/Instagram CDN media streams
-        if "fbcdn.net" in u and ("video" in ct or "audio" in ct or ".mp4" in u or "efg=" in u):
+        # Look for Facebook/Instagram CDN media streams (fbcdn.net, cdninstagram.com, instagram.com)
+        if any(d in u for d in ["fbcdn.net", "cdninstagram.com", "instagram.com"]) and (
+            "video" in ct or "audio" in ct or ".mp4" in u or "efg=" in u or "bytestart=" in u or ".m4a" in u
+        ):
             try:
                 metadata = ""
                 if "efg=" in u:
@@ -38,7 +40,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     metadata = base64.b64decode(padded).decode("utf-8", errors="ignore")
 
                 # Detect audio stream
-                if "_audio" in metadata or "heaac" in metadata or "audio/" in ct:
+                if "_audio" in metadata or "heaac" in metadata or "audio/" in ct or ".m4a" in u:
                     if not any(a["url"] == u for a in audio_streams):
                         audio_streams.append({"url": u, "meta": metadata})
                 # Detect video stream
@@ -65,7 +67,7 @@ def download_reel_with_browser_fallback(permalink, reel_id):
 
     try:
         with sync_playwright() as p:
-            # Ultra low-memory Chromium launch flags for 512MB containers
+            # Low-memory Chromium launch flags with automation stealth and autoplay enabled
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -74,23 +76,29 @@ def download_reel_with_browser_fallback(permalink, reel_id):
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--no-zygote",
+                    "--disable-blink-features=AutomationControlled",
+                    "--autoplay-policy=no-user-gesture-required",
                     "--disable-background-networking",
                     "--disable-default-apps",
                     "--disable-extensions",
-                    "--disable-sync",
-                    "--js-flags=--max-old-space-size=128"
+                    "--disable-sync"
                 ]
             )
 
-            # Use English locale to normalize cookie banners and prompts across all regions
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                locale="en-US",
+                locale="it-IT",
                 viewport={"width": 1280, "height": 800},
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
+                extra_http_headers={
+                    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                    "Sec-Ch-Ua-Mobile": "?0",
+                    "Sec-Ch-Ua-Platform": '"Windows"'
+                }
             )
 
             page = context.new_page()
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
 
             # Abort heavy static assets (images, fonts) to save RAM, keeping stylesheet for proper DOM rendering
             def abort_heavy(route):
@@ -111,29 +119,43 @@ def download_reel_with_browser_fallback(permalink, reel_id):
             page.wait_for_timeout(1000)
             log_event("INFO", f"Pagina Instagram caricata: URL={page.url}, Titolo={page.title()}", reel_id=reel_id)
 
-            # Dismiss any cookie or consent dialogs that might still appear
+            # Dismiss any login or cookie dialogs
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+
             cookie_selectors = [
+                "button:has-text('Consenti tutti i cookie')",
+                "button:has-text('Consenti tutti')",
+                "button:has-text('Consenti')",
+                "button:has-text('Accetta tutti')",
+                "button:has-text('Accetta')",
                 "button:has-text('Allow all cookies')",
                 "button:has-text('Allow essential and optional cookies')",
                 "button:has-text('Allow all')",
                 "button:has-text('Accept all')",
-                "button:has-text('Alle Cookies erlauben')",
-                "button:has-text('Nur erforderliche Cookies erlauben')",
-                "button:has-text('Optionale Cookies ablehnen')",
-                "button:has-text('Consenti tutti i cookie')",
-                "button:has-text('Consenti')",
                 "button:has-text('Accept')",
+                "button:has-text('Alle Cookies erlauben')",
+                "button:has-text('Nur notwendige Cookies erlauben')",
+                "button:has-text('Nur erforderliche Cookies erlauben')",
+                "button:has-text('Non ora')",
+                "button:has-text('Not now')",
                 "div[role='dialog'] button"
             ]
             for sel in cookie_selectors:
                 try:
                     btn = page.locator(sel).first
                     if btn.count() > 0 and btn.is_visible():
-                        btn.click(timeout=1500)
-                        page.wait_for_timeout(500)
+                        btn.click(timeout=1200)
+                        page.wait_for_timeout(400)
                         break
                 except Exception:
                     pass
+
+            page.keyboard.press("Escape")
+            try:
+                page.mouse.click(640, 400)
+            except Exception:
+                pass
 
             # Unmute and trigger video playback so DASH streaming is requested
             page.evaluate("""() => {

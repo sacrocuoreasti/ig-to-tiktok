@@ -2,11 +2,12 @@ import os
 import time
 import mimetypes
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file, Response
+from flask import Flask, render_template, request, jsonify, send_file, Response, session, redirect, url_for
 from config import DOWNLOADS_DIR, BASE_DIR
 from models import (
     init_db, get_all_settings, set_setting, get_setting,
-    get_reels, get_reel, get_stats, get_logs, clear_logs
+    get_reels, get_reel, get_stats, get_logs, clear_logs,
+    get_admin_credentials, verify_admin_password, update_admin_credentials
 )
 from instagram_client import InstagramClient
 from tiktok_client import TikTokClient
@@ -22,6 +23,64 @@ init_db()
 # Auto-start bot if configured
 if get_setting("bot_enabled", "true") == "true":
     bot.start()
+
+@app.before_request
+def check_authentication():
+    # Public routes that never require authentication
+    public_paths = ["/login", "/static", "/api/webhook"]
+    for p in public_paths:
+        if request.path.startswith(p):
+            return None
+
+    # Check if user is logged in
+    if not session.get("logged_in"):
+        if request.path.startswith("/api/"):
+            return jsonify({"success": False, "error": "Autenticazione richiesta", "auth_required": True}), 401
+        return redirect(url_for("view_login"))
+
+@app.route("/login", methods=["GET", "POST"])
+def view_login():
+    if session.get("logged_in"):
+        return redirect(url_for("index"))
+
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        admin_user, _ = get_admin_credentials()
+        if username == admin_user and verify_admin_password(password):
+            session["logged_in"] = True
+            session["username"] = username
+            return redirect(url_for("index"))
+        else:
+            error = "Nome utente o password errati. Riprova."
+
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def view_logout():
+    session.clear()
+    return redirect(url_for("view_login"))
+
+@app.route("/api/settings/password", methods=["POST"])
+def api_update_password():
+    data = request.get_json() or {}
+    curr_pwd = data.get("current_password", "")
+    new_user = data.get("new_username", "").strip()
+    new_pwd = data.get("new_password", "").strip()
+
+    if not verify_admin_password(curr_pwd):
+        return jsonify({"success": False, "error": "Password attuale errata"}), 400
+
+    if new_pwd and len(new_pwd) < 4:
+        return jsonify({"success": False, "error": "La nuova password deve contenere almeno 4 caratteri"}), 400
+
+    update_admin_credentials(new_username=new_user if new_user else None, new_password=new_pwd if new_pwd else None)
+    if new_user:
+        session["username"] = new_user
+
+    return jsonify({"success": True, "message": "Credenziali aggiornate con successo!"})
 
 @app.route("/")
 def index():
@@ -55,12 +114,15 @@ def api_status():
         "has_key": bool(zc.api_key)
     }
 
+    admin_user, _ = get_admin_credentials()
+
     return jsonify({
         "bot": status,
         "stats": stats,
         "instagram": ig_info,
         "tiktok": tt_info,
-        "zernio": zernio_info
+        "zernio": zernio_info,
+        "admin_username": session.get("username", admin_user)
     })
 
 @app.route("/api/bot/toggle", methods=["POST"])

@@ -146,13 +146,46 @@ class BotService:
                         else:
                             update_reel_status(reel_id, "error", error=dl_res.get("error"))
                     else:
-                        # Meta omits media_url due to copyrighted audio
-                        update_reel_status(reel_id, "audio_restricted")
-                        log_event(
-                            "INFO",
-                            f"Reel {reel_id} ha audio con copyright (nessun URL diretto da Meta). Pronto per pubblicazione o programmazione.",
-                            reel_id=reel_id
-                        )
+                        # Meta omits media_url due to copyrighted audio - extract automatically via browser
+                        log_event("INFO", f"Nuovo Reel trovato con audio protetto: {reel_id}. Estrazione automatica da permalink...", reel_id=reel_id)
+                        with browser_lock:
+                            from instagram_scraper import download_reel_with_browser_fallback
+                            dl_res = download_reel_with_browser_fallback(r.get("permalink"), reel_id)
+
+                        if dl_res.get("success"):
+                            video_path = dl_res.get("file_path")
+                            update_reel_status(reel_id, "downloaded", video_path=video_path)
+                            downloaded_count += 1
+                            log_event("SUCCESS", f"Reel {reel_id} scaricato con successo tramite browser ({dl_res.get('file_size', 0) // 1024} KB)", reel_id=reel_id)
+
+                            if auto_publish:
+                                log_event("INFO", f"Auto-pubblicazione attiva: invio a TikTok di {reel_id}...", reel_id=reel_id)
+                                with browser_lock:
+                                    pub_res = tt.publish_video(video_path, caption=r.get("caption", ""))
+                                if pub_res.get("success"):
+                                    pub_status = "published_test" if pub_res.get("mode") == "test_mode" else "published"
+                                    update_reel_status(
+                                        reel_id,
+                                        pub_status,
+                                        tiktok_id=pub_res.get("publish_id"),
+                                        tiktok_status=pub_res.get("status"),
+                                        tiktok_url=pub_res.get("tiktok_url")
+                                    )
+                                    published_count += 1
+                                    log_event("SUCCESS", f"Reel {reel_id} pubblicato con successo su TikTok!", reel_id=reel_id)
+
+                                    if get_setting("auto_delete_video", "true") == "true":
+                                        self._cleanup_single_file(video_path, reel_id)
+                                else:
+                                    update_reel_status(reel_id, "error", error=pub_res.get("error"))
+                                    log_event("ERROR", f"Errore pubblicazione TikTok per {reel_id}: {pub_res.get('error')}", reel_id=reel_id)
+                        else:
+                            update_reel_status(reel_id, "audio_restricted", error=dl_res.get("error"))
+                            log_event(
+                                "WARNING",
+                                f"Estrazione browser per Reel {reel_id} non riuscita: {dl_res.get('error')}. In attesa di intervento o riprova.",
+                                reel_id=reel_id
+                            )
 
             summary = f"Controllo completato: {len(reels)} reel esaminati ({new_count} nuovi, {downloaded_count} scaricati, {published_count} pubblicati)."
             log_event("INFO", summary)
@@ -304,12 +337,16 @@ class BotService:
 
     def skip_reel(self, reel_id):
         """Marks a reel as skipped so it won't be auto-published."""
+        from models import add_skipped_reel_id
+        add_skipped_reel_id(reel_id)
         update_reel_status(reel_id, "skipped")
         log_event("INFO", f"Reel {reel_id} contrassegnato come ignorato.", reel_id=reel_id)
         return {"success": True}
 
     def unskip_reel(self, reel_id):
         """Restores a skipped reel to active status (audio_restricted, downloaded, or new)."""
+        from models import remove_skipped_reel_id
+        remove_skipped_reel_id(reel_id)
         reel = get_reel(reel_id)
         if not reel:
             return {"success": False, "error": "Reel non trovato"}

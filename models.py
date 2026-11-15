@@ -1,7 +1,39 @@
 import sqlite3
 import json
 from datetime import datetime
+from pathlib import Path
+from werkzeug.security import generate_password_hash, check_password_hash
 from config import DB_PATH, DEFAULT_SETTINGS
+
+SKIPPED_REELS_FILE = Path(__file__).resolve().parent / "skipped_reels.json"
+
+def get_skipped_reel_ids():
+    if SKIPPED_REELS_FILE.exists():
+        try:
+            with open(SKIPPED_REELS_FILE, "r") as f:
+                data = json.load(f)
+                return set(str(x) for x in data)
+        except Exception:
+            return set()
+    return set()
+
+def add_skipped_reel_id(reel_id):
+    skipped = get_skipped_reel_ids()
+    skipped.add(str(reel_id))
+    try:
+        with open(SKIPPED_REELS_FILE, "w") as f:
+            json.dump(sorted(list(skipped)), f, indent=2)
+    except Exception:
+        pass
+
+def remove_skipped_reel_id(reel_id):
+    skipped = get_skipped_reel_ids()
+    skipped.discard(str(reel_id))
+    try:
+        with open(SKIPPED_REELS_FILE, "w") as f:
+            json.dump(sorted(list(skipped)), f, indent=2)
+    except Exception:
+        pass
 
 def get_db_connection():
     conn = sqlite3.connect(str(DB_PATH))
@@ -160,19 +192,24 @@ def save_or_update_reel(reel_data):
     conn = get_db_connection()
     cursor = conn.cursor()
     now_iso = datetime.utcnow().isoformat()
+    reel_id_str = str(reel_data["id"])
 
-    cursor.execute("SELECT id, status, video_path FROM reels WHERE id = ?", (reel_data["id"],))
+    cursor.execute("SELECT id, status, video_path FROM reels WHERE id = ?", (reel_id_str,))
     existing = cursor.fetchone()
 
+    skipped_ids = get_skipped_reel_ids()
+    is_permanently_skipped = reel_id_str in skipped_ids
+
     if existing:
-        # Update existing reel fields if needed without overwriting already downloaded/published status
+        target_status = "skipped" if (is_permanently_skipped or existing["status"] == "skipped") else existing["status"]
         cursor.execute("""
             UPDATE reels SET
                 caption = coalesce(?, caption),
                 permalink = coalesce(?, permalink),
                 thumbnail_url = coalesce(?, thumbnail_url),
                 media_url = coalesce(?, media_url),
-                has_media_url = coalesce(?, has_media_url)
+                has_media_url = coalesce(?, has_media_url),
+                status = ?
             WHERE id = ?
         """, (
             reel_data.get("caption"),
@@ -180,12 +217,14 @@ def save_or_update_reel(reel_data):
             reel_data.get("thumbnail_url"),
             reel_data.get("media_url"),
             1 if reel_data.get("media_url") else 0,
-            reel_data["id"]
+            target_status,
+            reel_id_str
         ))
         conn.commit()
         conn.close()
-        return False, existing["status"]  # is_new = False
+        return False, target_status  # is_new = False
     else:
+        initial_status = "skipped" if is_permanently_skipped else reel_data.get("status", "new")
         cursor.execute("""
             INSERT INTO reels (
                 id, caption, media_type, media_product_type, permalink,
@@ -193,7 +232,7 @@ def save_or_update_reel(reel_data):
                 timestamp, status, discovered_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            reel_data["id"],
+            reel_id_str,
             reel_data.get("caption", ""),
             reel_data.get("media_type", "VIDEO"),
             reel_data.get("media_product_type", "REELS"),
@@ -203,12 +242,13 @@ def save_or_update_reel(reel_data):
             1 if reel_data.get("media_url") else 0,
             reel_data.get("video_path"),
             reel_data.get("timestamp", ""),
-            reel_data.get("status", "new"),
+            initial_status,
             now_iso
         ))
         conn.commit()
         conn.close()
-        return True, reel_data.get("status", "new")  # is_new = True
+        # If it was in skipped_reels.json, never treat it as new for auto-publishing
+        return (not is_permanently_skipped), initial_status
 
 def update_reel_status(reel_id, status, video_path=None, tiktok_id=None, tiktok_status=None, error=None, tiktok_url=None, scheduled_for=None):
     conn = get_db_connection()
@@ -359,4 +399,25 @@ def clear_logs():
     cursor.execute("DELETE FROM logs")
     conn.commit()
     conn.close()
+
+def get_admin_credentials():
+    username = get_setting("admin_username", "admin")
+    password_hash = get_setting("admin_password_hash", None)
+    if not password_hash:
+        password_hash = generate_password_hash("admin", method="pbkdf2:sha256")
+        set_setting("admin_password_hash", password_hash)
+        set_setting("admin_username", "admin")
+    return username, password_hash
+
+def verify_admin_password(password):
+    _, pwd_hash = get_admin_credentials()
+    return check_password_hash(pwd_hash, password)
+
+def update_admin_credentials(new_username=None, new_password=None):
+    if new_username and new_username.strip():
+        set_setting("admin_username", new_username.strip())
+    if new_password and new_password.strip():
+        pwd_hash = generate_password_hash(new_password.strip(), method="pbkdf2:sha256")
+        set_setting("admin_password_hash", pwd_hash)
+    return True
 
